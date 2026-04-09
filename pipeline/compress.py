@@ -57,6 +57,30 @@ def _find_gltf_transform() -> str:
     return path
 
 
+def _find_toktx() -> str:
+    """toktx 바이너리 경로를 찾는다.
+
+    gltf-transform의 uastc/etc1s 커맨드는 내부적으로 toktx를 호출한다.
+    미설치 시 KTX2 압축 단계에서 불명확한 에러가 발생하므로
+    압축 시작 전에 미리 확인한다.
+
+    Returns:
+        toktx 실행 파일 절대 경로
+
+    Raises:
+        FileNotFoundError: toktx가 PATH에 없을 때
+    """
+    path = shutil.which("toktx")
+    if not path:
+        raise FileNotFoundError(
+            "toktx를 찾을 수 없습니다. "
+            "KTX-Software를 설치하고 toktx.exe를 PATH에 추가하세요. "
+            "다운로드: https://github.com/KhronosGroup/KTX-Software/releases"
+        )
+    logger.info("toktx 확인: %s", path)
+    return path
+
+
 def _validate_glb(input_path: Path) -> None:
     """GLB 파일의 유효성을 검증한다.
 
@@ -145,6 +169,7 @@ def _run_gltf_transform(gltf_cmd: str, args: list[str]) -> subprocess.CompletedP
         capture_output=True,
         text=True,
         encoding="utf-8",
+        errors="replace",
         check=True,
     )
 
@@ -330,8 +355,9 @@ def compress_glb(
     # 입력 검증
     _validate_glb(input_path)
 
-    # gltf-transform 경로 확인
+    # gltf-transform, toktx 경로 확인
     gltf_cmd = _find_gltf_transform()
+    _find_toktx()
 
     # 경로 설정
     vehicle_dir = models_dir / vehicle_id
