@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C /c/Git/Web_Viewer show HEAD:.gitignore)",
+      "Bash(git -C /c/Git/Web_Viewer status)"
+    ]
+  }
+}

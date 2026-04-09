@@ -1,0 +1,3 @@
+2026-04-09 22:52:18 [INFO] vehicle_viewer — LocalStorage 초기화: C:\Git\Web_Viewer\backend\models_dir
+2026-04-09 22:52:18 [INFO] vehicle_viewer — CORS 허용 출처: ['http://localhost:5173', 'http://localhost:3000']
+2026-04-09 22:52:18 [INFO] vehicle_viewer — StaticFiles 마운트: /static → C:\Git\Web_Viewer\backend\models_dir
