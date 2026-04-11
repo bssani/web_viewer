@@ -15,6 +15,8 @@ import { CubeTexture } from '@babylonjs/core/Materials/Textures/cubeTexture'
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder'
 import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial'
 import { Color3 } from '@babylonjs/core/Maths/math.color'
+import { DefaultRenderingPipeline } from '@babylonjs/core/PostProcesses/RenderPipeline/Pipelines/defaultRenderingPipeline'
+import { ImageProcessingConfiguration } from '@babylonjs/core/Materials/imageProcessingConfiguration'
 import '@babylonjs/core/Helpers/sceneHelpers'
 import type { IDisposable } from '@babylonjs/core/scene'
 import type { Mesh } from '@babylonjs/core/Meshes/mesh'
@@ -119,11 +121,24 @@ export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
     // 스카이박스 (환경 배경)
     const skybox = scene.createDefaultSkybox(envTexture, true, 100)
 
+    // 후처리 파이프라인 (ACES 톤매핑 + FXAA)
+    const pipeline = new DefaultRenderingPipeline('default', true, scene, [camera])
+    pipeline.imageProcessingEnabled = true
+    pipeline.imageProcessing.toneMappingEnabled = true
+    pipeline.imageProcessing.toneMappingType = ImageProcessingConfiguration.TONEMAPPING_ACES
+    pipeline.fxaaEnabled = true
+    // Phase 3b에서 활성화 예정
+    pipeline.bloomEnabled = false
+    pipeline.depthOfFieldEnabled = false
+    pipeline.chromaticAberrationEnabled = false
+    pipeline.grainEnabled = false
+    pipeline.sharpenEnabled = false
+
     // 수동 추적 리소스 등록 (dispose 시 명시적 해제)
-    ownedResourcesRef.current.push(envTexture)
+    ownedResourcesRef.current.push(envTexture, pipeline)
     skyboxRef.current = skybox ?? null
 
-    logger.debug('[IBL] env 텍스처 로드 완료, skybox:', !!skybox)
+    logger.debug('[후처리] ACES 톤매핑 + FXAA 활성화')
 
     return scene
   }, [engine])
