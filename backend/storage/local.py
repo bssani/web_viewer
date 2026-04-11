@@ -1,4 +1,4 @@
-# Copyright (c) 2025 GM Technical Center Korea — PQDQ Team
+# Copyright (c) 2025 Philip Choi
 
 """로컬 파일 시스템 기반 스토리지 구현. Phase 1~5에서 사용."""
 

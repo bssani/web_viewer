@@ -1,4 +1,4 @@
-# Copyright (c) 2025 GM Technical Center Korea — PQDQ Team
+# Copyright (c) 2025 Philip Choi
 
 """UE5 export 폴더 감시 + 자동 압축 스크립트.
 

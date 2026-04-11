@@ -1,4 +1,4 @@
-# Copyright (c) 2025 GM Technical Center Korea — PQDQ Team
+# Copyright (c) 2025 Philip Choi
 
 """S3 기반 스토리지 구현 skeleton. Phase 6에서 구현 예정."""
 

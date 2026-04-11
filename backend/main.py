@@ -1,4 +1,4 @@
-# Copyright (c) 2025 GM Technical Center Korea — PQDQ Team
+# Copyright (c) 2025 Philip Choi
 
 """Vehicle Web Viewer — FastAPI 서버.
 
@@ -11,10 +11,11 @@
 
 import logging
 import mimetypes
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from starlette.staticfiles import StaticFiles
 
 from config.base import setup_logging
@@ -22,6 +23,9 @@ from config.local import ALLOWED_ORIGINS, LOG_FILE, MODELS_DIR
 from middleware.auth import AuthMiddleware
 from routers.vehicles import router as vehicles_router
 from storage.local import LocalStorage
+
+# 프론트엔드 빌드 디렉토리 (backend/../frontend/dist)
+FRONTEND_DIR = Path(__file__).parent.parent / "frontend" / "dist"
 
 # 로깅 설정
 setup_logging(LOG_FILE)
@@ -83,7 +87,19 @@ async def cache_control_middleware(request: Request, call_next) -> Response:
     return response
 
 
-@app.get("/")
-def root():
-    """서버 상태 확인용 루트 엔드포인트."""
-    return {"status": "ok", "message": "Vehicle Web Viewer API"}
+# 프론트엔드 정적 파일 서빙 (프로덕션 배포용)
+if FRONTEND_DIR.is_dir():
+    @app.get("/")
+    async def serve_index():
+        """SPA index.html 서빙."""
+        return FileResponse(str(FRONTEND_DIR / "index.html"))
+
+    # SPA 라우팅: 알 수 없는 경로 → index.html fallback
+    # StaticFiles는 가장 마지막에 마운트 (catch-all)
+    app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
+    logger.info("프론트엔드 마운트: / → %s", FRONTEND_DIR)
+else:
+    @app.get("/")
+    def root():
+        """서버 상태 확인용 루트 엔드포인트."""
+        return {"status": "ok", "message": "Vehicle Web Viewer API"}

@@ -2,7 +2,14 @@
   "permissions": {
     "allow": [
       "Bash(git -C /c/Git/Web_Viewer show HEAD:.gitignore)",
-      "Bash(git -C /c/Git/Web_Viewer status)"
+      "Bash(git -C /c/Git/Web_Viewer status)",
+      "Bash(npm create:*)",
+      "Bash(npm install:*)",
+      "Bash(ls /c/Git/Web_Viewer/frontend/node_modules/@babylonjs/core/Engines/WebGPU/webGPUEngine*.d.ts)",
+      "Bash(npm list:*)",
+      "Bash(curl -sL \"https://cdn.babylonjs.com/babylon.ktx2Decoder.js\" -o babylon.ktx2Decoder.js)",
+      "Bash(xxd \"c:/Git/Web_Viewer/frontend/public/libs/ktx2Transcoders/uastc_rgba8_unorm.wasm\")",
+      "Bash(xxd \"c:/Git/Web_Viewer/frontend/public/libs/ktx2Transcoders/uastc_astc.wasm\")"
     ]
   }
 }

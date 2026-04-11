@@ -1,4 +1,4 @@
-# Copyright (c) 2025 GM Technical Center Korea — PQDQ Team
+# Copyright (c) 2025 Philip Choi
 
 """차량 모델 관련 API 라우터.
 

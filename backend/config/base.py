@@ -1,4 +1,4 @@
-# Copyright (c) 2025 GM Technical Center Korea — PQDQ Team
+# Copyright (c) 2025 Philip Choi
 
 """공통 설정. 환경변수 기반으로 설정값을 읽어온다."""
 

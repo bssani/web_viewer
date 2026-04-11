@@ -9,9 +9,9 @@
       "file": "exterior.glb",
       "file_size_bytes": 70062120,
       "file_hash": "758c5da2f2f1b548d860cb89323097271e297bc15660e7d1136966b047f52da8",
-      "draw_calls": 0,
-      "material_count": 0,
-      "vertex_count": 0,
+      "draw_calls": 75,
+      "material_count": 14,
+      "vertex_count": 155891,
       "texture_memory_bytes": 0
     }
   }

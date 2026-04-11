@@ -1,4 +1,4 @@
-# Copyright (c) 2025 GM Technical Center Korea — PQDQ Team
+# Copyright (c) 2025 Philip Choi
 
 """GLB 압축 스크립트.
 
@@ -183,69 +183,74 @@ def _compute_file_hash(file_path: Path) -> str:
     return sha256.hexdigest()
 
 
-def _inspect_glb(gltf_cmd: str, glb_path: Path) -> dict:
-    """gltf-transform inspect로 GLB 정보를 추출한다.
+def _parse_glb_metrics(glb_path: Path) -> dict:
+    """GLB 파일의 JSON 청크를 직접 파싱하여 메트릭을 추출한다.
+
+    gltf-transform inspect는 --format json을 지원하지 않으므로
+    GLB 바이너리를 직접 읽어 glTF JSON 청크에서 메트릭을 계산한다.
+    Meshopt 압축이 적용된 GLB도 JSON 청크는 평문이므로 정상 파싱 가능.
 
     Args:
-        gltf_cmd: gltf-transform 실행 파일 경로
-        glb_path: 검사할 GLB 파일 경로
-
-    Returns:
-        검사 결과 딕셔너리
-    """
-    result = _run_gltf_transform(gltf_cmd, [
-        "inspect", str(glb_path), "--format", "json",
-    ])
-    return json.loads(result.stdout)
-
-
-def _extract_metrics(info: dict) -> dict:
-    """gltf-transform inspect 결과에서 메트릭을 추출한다.
-
-    Args:
-        info: gltf-transform inspect --format json 결과
+        glb_path: GLB 파일 경로
 
     Returns:
         draw_calls, material_count, vertex_count, texture_memory_bytes 딕셔너리
+
+    Raises:
+        ValueError: 유효한 GLB가 아니거나 JSON 청크를 찾을 수 없을 때
     """
-    # primitives(draw calls) 수 계산
-    draw_calls = 0
-    meshes = info.get("meshes", info.get("scenes", {}).get("properties", []))
-    if isinstance(meshes, dict):
-        # meshes.properties 내 각 메시의 primitives 수
-        for mesh_info in meshes.get("properties", []):
-            draw_calls += mesh_info.get("primitives", 1)
-    elif isinstance(meshes, list):
-        draw_calls = len(meshes)
+    data = glb_path.read_bytes()
 
-    # 머티리얼 수
-    materials = info.get("materials", {})
-    if isinstance(materials, dict):
-        material_count = len(materials.get("properties", []))
-    elif isinstance(materials, list):
-        material_count = len(materials)
-    else:
-        material_count = 0
+    # GLB 헤더 파싱 (12바이트)
+    if len(data) < 12:
+        raise ValueError(f"파일이 너무 작습니다 ({len(data)}바이트): {glb_path}")
 
-    # vertex 수 계산
-    vertex_count = 0
-    accessors = info.get("accessors", {})
-    if isinstance(accessors, dict):
-        for acc in accessors.get("properties", []):
-            if "POSITION" in acc.get("types", []):
-                vertex_count += acc.get("count", 0)
+    magic = data[:4]
+    if magic != _GLB_MAGIC:
+        raise ValueError(f"유효한 GLB가 아닙니다 (magic: {magic.hex()}): {glb_path}")
 
-    # 텍스처 메모리 추정 (RGBA8 디코딩 시)
-    # width * height * 4 * mipmap_factor(1.33)
+    # JSON 청크 헤더 (오프셋 12부터 8바이트)
+    if len(data) < 20:
+        raise ValueError(f"JSON 청크 헤더가 없습니다: {glb_path}")
+
+    chunk_length = int.from_bytes(data[12:16], "little")
+    chunk_type = data[16:20]
+
+    if chunk_type != b"JSON":
+        raise ValueError(
+            f"첫 번째 청크가 JSON이 아닙니다 (type: {chunk_type!r}): {glb_path}"
+        )
+
+    # JSON 청크 데이터 파싱
+    json_bytes = data[20:20 + chunk_length]
+    gltf = json.loads(json_bytes)
+
+    # draw_calls: 모든 mesh의 primitives 배열 길이 총합
+    draw_calls = sum(
+        len(mesh.get("primitives", []))
+        for mesh in gltf.get("meshes", [])
+    )
+
+    # material_count
+    material_count = len(gltf.get("materials", []))
+
+    # vertex_count: 각 primitive의 POSITION accessor count 합 (중복 제거)
+    accessors = gltf.get("accessors", [])
+    position_indices: set[int] = set()
+    for mesh in gltf.get("meshes", []):
+        for prim in mesh.get("primitives", []):
+            pos_idx = prim.get("attributes", {}).get("POSITION")
+            if pos_idx is not None:
+                position_indices.add(pos_idx)
+
+    vertex_count = sum(
+        accessors[idx].get("count", 0)
+        for idx in position_indices
+        if idx < len(accessors)
+    )
+
+    # texture_memory_bytes: 0 고정 (Phase 2에서 Babylon.js가 실제 측정)
     texture_memory_bytes = 0
-    textures = info.get("textures", {})
-    if isinstance(textures, dict):
-        for tex in textures.get("properties", []):
-            w = tex.get("width", 0)
-            h = tex.get("height", 0)
-            if w > 0 and h > 0:
-                # mipmap factor 약 1.33
-                texture_memory_bytes += int(w * h * 4 * 1.33)
 
     return {
         "draw_calls": draw_calls,
@@ -443,12 +448,11 @@ def compress_glb(
         final_size = final_path.stat().st_size
         file_hash = _compute_file_hash(final_path)
 
-        # gltf-transform inspect로 메트릭 추출
+        # GLB JSON 청크에서 메트릭 추출
         try:
-            info = _inspect_glb(gltf_cmd, final_path)
-            metrics = _extract_metrics(info)
-        except (subprocess.CalledProcessError, json.JSONDecodeError) as exc:
-            logger.warning("inspect 실패, 기본값 사용: %s", exc)
+            metrics = _parse_glb_metrics(final_path)
+        except (ValueError, OSError, json.JSONDecodeError) as exc:
+            logger.warning("GLB 메트릭 추출 실패, 기본값 사용: %s", exc)
             metrics = {
                 "draw_calls": 0,
                 "material_count": 0,

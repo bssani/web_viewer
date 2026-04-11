@@ -1,4 +1,4 @@
-# Copyright (c) 2025 GM Technical Center Korea — PQDQ Team
+# Copyright (c) 2025 Philip Choi
 
 """인증 미들웨어. Phase 1~5: 통과(no-op). Phase 6: JWT 검증 추가."""
 

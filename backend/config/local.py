@@ -1,4 +1,4 @@
-# Copyright (c) 2025 GM Technical Center Korea — PQDQ Team
+# Copyright (c) 2025 Philip Choi
 
 """Windows 데스크탑 환경 설정. Phase 1~5에서 사용."""
 
