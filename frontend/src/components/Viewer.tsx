@@ -113,9 +113,11 @@ export function Viewer({ selectedVehicleId, isDevMode }: ViewerProps) {
         azimuth={lighting.state.azimuth}
         elevation={lighting.state.elevation}
         intensity={lighting.state.intensity}
+        activePreset={lighting.activePreset}
         onAzimuthChange={lighting.setAzimuth}
         onElevationChange={lighting.setElevation}
         onIntensityChange={lighting.setIntensity}
+        onPresetSelect={lighting.applyPreset}
       />
 
       {/* 개발자 모드 패널 */}

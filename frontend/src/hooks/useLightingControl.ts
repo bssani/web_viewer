@@ -22,6 +22,24 @@ export const DEFAULT_LIGHTING: LightingState = {
   intensity: 2.0,
 }
 
+export type PresetId = 'morning' | 'noon' | 'evening' | 'night' | 'studio'
+
+export interface LightingPreset {
+  id: PresetId
+  label: string
+  azimuth: number
+  elevation: number
+  intensity: number
+}
+
+export const LIGHTING_PRESETS: LightingPreset[] = [
+  { id: 'morning',  label: '아침',     azimuth: 90,  elevation: 25, intensity: 1.5 },
+  { id: 'noon',     label: '정오',     azimuth: 180, elevation: 80, intensity: 3.0 },
+  { id: 'evening',  label: '저녁',     azimuth: 270, elevation: 20, intensity: 1.8 },
+  { id: 'night',    label: '밤',       azimuth: 0,   elevation: 60, intensity: 0.4 },
+  { id: 'studio',   label: '스튜디오', azimuth: 135, elevation: 45, intensity: 4.0 },
+]
+
 /** Azimuth(0=북=+Z)/Elevation(0=수평,90=정수리) → Babylon direction (빛 진행 방향) */
 export function azElToDirection(azimuthDeg: number, elevationDeg: number): Vector3 {
   const azRad = (azimuthDeg * Math.PI) / 180
@@ -34,10 +52,12 @@ export function azElToDirection(azimuthDeg: number, elevationDeg: number): Vecto
 
 export function useLightingControl(sceneManager: SceneManager) {
   const [state, setState] = useState<LightingState>(DEFAULT_LIGHTING)
+  const [activePreset, setActivePreset] = useState<PresetId | null>(null)
 
   const setAzimuth = useCallback((azimuth: number) => {
     const sun = sceneManager.sunRef.current
     if (!sun) return
+    setActivePreset(null)
     setState((prev) => {
       const next = { ...prev, azimuth }
       sun.direction = azElToDirection(next.azimuth, next.elevation)
@@ -48,6 +68,7 @@ export function useLightingControl(sceneManager: SceneManager) {
   const setElevation = useCallback((elevation: number) => {
     const sun = sceneManager.sunRef.current
     if (!sun) return
+    setActivePreset(null)
     setState((prev) => {
       const next = { ...prev, elevation }
       sun.direction = azElToDirection(next.azimuth, next.elevation)
@@ -58,8 +79,23 @@ export function useLightingControl(sceneManager: SceneManager) {
   const setIntensity = useCallback((intensity: number) => {
     const sun = sceneManager.sunRef.current
     if (!sun) return
+    setActivePreset(null)
     sun.intensity = intensity
     setState((prev) => ({ ...prev, intensity }))
+  }, [sceneManager])
+
+  const applyPreset = useCallback((preset: LightingPreset) => {
+    const sun = sceneManager.sunRef.current
+    if (!sun) return
+    const next: LightingState = {
+      azimuth: preset.azimuth,
+      elevation: preset.elevation,
+      intensity: preset.intensity,
+    }
+    sun.direction = azElToDirection(next.azimuth, next.elevation)
+    sun.intensity = next.intensity
+    setState(next)
+    setActivePreset(preset.id)
   }, [sceneManager])
 
   /** 차량 전환 후 재동기화. Viewer.tsx의 useEffect에서 호출. */
@@ -70,5 +106,5 @@ export function useLightingControl(sceneManager: SceneManager) {
     sun.intensity = state.intensity
   }, [sceneManager, state])
 
-  return { state, setAzimuth, setElevation, setIntensity, resync }
+  return { state, activePreset, setAzimuth, setElevation, setIntensity, applyPreset, resync }
 }
