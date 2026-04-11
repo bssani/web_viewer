@@ -55,7 +55,7 @@ async function initializeEngine(
       const supported = await WebGPUEngine.IsSupportedAsync
       if (supported) {
         try {
-          const engine = new WebGPUEngine(canvas)
+          const engine = new WebGPUEngine(canvas, { useLogarithmicDepth: true })
           await engine.initAsync()
           _engineInstance = engine
           _rendererType = 'webgpu'
@@ -67,7 +67,7 @@ async function initializeEngine(
       }
 
       // WebGL 2.0 fallback
-      const engine = new Engine(canvas, true)
+      const engine = new Engine(canvas, true, { useLogarithmicDepth: true })
       _engineInstance = engine
       _rendererType = 'webgl2'
       logger.info('WebGL 2.0 엔진 초기화 완료')

@@ -8,6 +8,9 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ImportMeshAsync } from '@babylonjs/core/Loading/sceneLoader'
+import { Vector3 } from '@babylonjs/core/Maths/math.vector'
+import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh'
+import type { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera'
 import '@babylonjs/loaders/glTF'
 import { fetchVehicleMetadata, getGlbUrl } from '../services/api'
 import type { SceneManager } from './useScene'
@@ -15,6 +18,29 @@ import type { VehicleMetadata } from '../types/vehicle'
 import type { Engine } from '@babylonjs/core/Engines/engine'
 import type { WebGPUEngine } from '@babylonjs/core/Engines/webgpuEngine'
 import { logger } from '../utils/logger'
+
+/** 모델 바운딩 박스 기반으로 카메라 near/far 자동 설정 */
+function adjustCameraClipping(camera: ArcRotateCamera, meshes: AbstractMesh[]) {
+  if (meshes.length === 0) {
+    logger.warn('[clipping] meshes 비어있음, 기본값 유지')
+    return
+  }
+
+  let min = new Vector3(Infinity, Infinity, Infinity)
+  let max = new Vector3(-Infinity, -Infinity, -Infinity)
+
+  for (const m of meshes) {
+    const bb = m.getBoundingInfo().boundingBox
+    min = Vector3.Minimize(min, bb.minimumWorld)
+    max = Vector3.Maximize(max, bb.maximumWorld)
+  }
+
+  const diagonal = Vector3.Distance(min, max)
+  camera.minZ = diagonal * 0.001
+  camera.maxZ = diagonal * 100
+
+  logger.debug(`[clipping] minZ=${camera.minZ.toFixed(3)} maxZ=${camera.maxZ.toFixed(1)}`)
+}
 
 export interface VehicleLoaderState {
   isLoading: boolean
@@ -111,8 +137,11 @@ export function useVehicleLoader(
           newScene!.executeWhenReady(() => resolve())
         })
 
-        // 카메라 자동 fit
+        // 카메라 자동 fit + 클리핑 조정
         sceneManager.fitCameraToScene(newScene)
+        if (sceneManager.cameraRef.current) {
+          adjustCameraClipping(sceneManager.cameraRef.current, newScene.meshes)
+        }
 
         // 렌더 루프 시작 (중복 방지)
         if (!engine.activeRenderLoops.length) {
