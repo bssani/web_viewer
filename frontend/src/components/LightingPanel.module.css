@@ -1,0 +1,29 @@
+.panel {
+  --panel-bg: rgba(20, 20, 25, 0.85);
+  --panel-fg: #e0e0e0;
+  --panel-accent: #4a9eff;
+  --panel-padding: 16px;
+  --panel-radius: 8px;
+  --panel-gap: 14px;
+
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  width: 240px;
+  padding: var(--panel-padding);
+  background: var(--panel-bg);
+  color: var(--panel-fg);
+  border-radius: var(--panel-radius);
+  backdrop-filter: blur(8px);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 13px;
+  z-index: 1000;
+  user-select: none;
+}
+
+.title { margin: 0 0 12px 0; font-size: 14px; font-weight: 600; }
+.row { display: flex; flex-direction: column; gap: 6px; margin-bottom: var(--panel-gap); }
+.row:last-child { margin-bottom: 0; }
+.label { display: flex; justify-content: space-between; align-items: center; }
+.value { color: var(--panel-accent); font-variant-numeric: tabular-nums; font-size: 12px; }
+.slider { width: 100%; cursor: pointer; accent-color: var(--panel-accent); }

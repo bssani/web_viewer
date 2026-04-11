@@ -30,6 +30,8 @@ export interface SceneManager {
   sceneRef: React.MutableRefObject<Scene | null>
   /** 현재 카메라 참조 */
   cameraRef: React.MutableRefObject<ArcRotateCamera | null>
+  /** 현재 주광 참조 (3b-2 슬라이더 제어용) */
+  sunRef: React.MutableRefObject<DirectionalLight | null>
   /** 기존 씬 dispose 후 새 씬 생성 */
   createScene: () => Scene
   /** 카메라를 모델 바운딩 박스에 맞춤 */
@@ -41,6 +43,7 @@ export interface SceneManager {
 export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
   const sceneRef = useRef<Scene | null>(null)
   const cameraRef = useRef<ArcRotateCamera | null>(null)
+  const sunRef = useRef<DirectionalLight | null>(null)
   const ownedResourcesRef = useRef<IDisposable[]>([])
   const skyboxRef = useRef<Mesh | null>(null)
 
@@ -74,6 +77,7 @@ export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
       sceneRef.current.dispose()
       sceneRef.current = null
       cameraRef.current = null
+      sunRef.current = null
 
       // 엔진 텍스처 캐시 강제 정리 (scene.dispose가 남기는 잔여 텍스처 제거)
       const cache = engine?.getLoadedTexturesCache()
@@ -116,6 +120,7 @@ export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
     const sun = new DirectionalLight('sun', new Vector3(-0.5, -1, -0.5).normalize(), scene)
     sun.intensity = 2.0
     sun.position = new Vector3(5, 10, 5)
+    sunRef.current = sun
 
     // IBL 환경 텍스처 (PBR 반사용)
     const envTexture = CubeTexture.CreateFromPrefilteredData(
@@ -211,5 +216,5 @@ export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
     logger.debug(`[바닥] y=${ground.position.y.toFixed(3)}`)
   }, [])
 
-  return { sceneRef, cameraRef, createScene, fitCameraToScene, createGround }
+  return { sceneRef, cameraRef, sunRef, createScene, fitCameraToScene, createGround }
 }
