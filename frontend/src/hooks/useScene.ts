@@ -11,6 +11,10 @@ import { Scene } from '@babylonjs/core/scene'
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight'
 import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera'
 import { Vector3 } from '@babylonjs/core/Maths/math.vector'
+import { CubeTexture } from '@babylonjs/core/Materials/Textures/cubeTexture'
+import '@babylonjs/core/Helpers/sceneHelpers'
+import type { IDisposable } from '@babylonjs/core/scene'
+import type { Mesh } from '@babylonjs/core/Meshes/mesh'
 import type { Engine } from '@babylonjs/core/Engines/engine'
 import type { WebGPUEngine } from '@babylonjs/core/Engines/webgpuEngine'
 import { logger } from '../utils/logger'
@@ -29,6 +33,8 @@ export interface SceneManager {
 export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
   const sceneRef = useRef<Scene | null>(null)
   const cameraRef = useRef<ArcRotateCamera | null>(null)
+  const ownedResourcesRef = useRef<IDisposable[]>([])
+  const skyboxRef = useRef<Mesh | null>(null)
 
   const createScene = useCallback(() => {
     // 기존 씬 dispose (메모리 계측)
@@ -42,6 +48,19 @@ export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
 
       // 렌더 루프 중지 (dispose 중 렌더 방지)
       engine?.stopRenderLoop()
+
+      // 수동 추적 리소스 명시적 해제 (envTexture 등)
+      for (const res of ownedResourcesRef.current) {
+        res.dispose()
+      }
+      ownedResourcesRef.current = []
+
+      // 스카이박스 dispose (머티리얼+텍스처 포함)
+      skyboxRef.current?.dispose(false, true)
+      skyboxRef.current = null
+
+      // env 텍스처 참조 끊기 (dispose 후 null — 재평가 트리거 방지)
+      sceneRef.current.environmentTexture = null
 
       // 씬 완전 해제
       sceneRef.current.dispose()
@@ -84,6 +103,23 @@ export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
     const light = new HemisphericLight('light', new Vector3(0, 1, 0), scene)
     light.intensity = 1.0
 
+    // IBL 환경 텍스처 (PBR 반사용)
+    const envTexture = CubeTexture.CreateFromPrefilteredData(
+      `${import.meta.env.BASE_URL}env/studio.env`,
+      scene,
+    )
+    scene.environmentTexture = envTexture
+    scene.environmentIntensity = 1.0
+
+    // 스카이박스 (환경 배경)
+    const skybox = scene.createDefaultSkybox(envTexture, true, 100)
+
+    // 수동 추적 리소스 등록 (dispose 시 명시적 해제)
+    ownedResourcesRef.current.push(envTexture)
+    skyboxRef.current = skybox ?? null
+
+    logger.debug('[IBL] env 텍스처 로드 완료, skybox:', !!skybox)
+
     return scene
   }, [engine])
 
@@ -91,8 +127,16 @@ export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
     const camera = cameraRef.current
     if (!camera) return
 
-    // 전체 바운딩 박스 계산
-    const meshes = scene.meshes.filter((m) => m.getTotalVertices() > 0)
+    // 스카이박스/루트노드/빈BB 제외한 유효 mesh만 사용
+    const allMeshes = scene.meshes.filter((m) => m.getTotalVertices() > 0)
+    const meshes = allMeshes.filter((m) => {
+      if (m.name === 'hdrSkyBox' || m.name === '__root__') return false
+      const bb = m.getBoundingInfo().boundingBox
+      return Vector3.Distance(bb.minimumWorld, bb.maximumWorld) > 0
+    })
+    logger.debug(`[fitCamera] 전체 ${allMeshes.length}개 → 필터 후 ${meshes.length}개`)
+    // [진단] fitCamera에 포함되는 mesh 이름 출력
+    logger.debug('[fitCamera 진단] meshes:', meshes.map((m) => m.name))
     if (meshes.length === 0) return
 
     let min = new Vector3(Infinity, Infinity, Infinity)
