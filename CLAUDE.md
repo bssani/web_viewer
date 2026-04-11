@@ -82,7 +82,7 @@ Phase 4 완료 = v1.0 출시. GMTCK 내 여러 팀에 정식 배포.
 ### Backend (Python)
 - 모든 주석 한국어 작성
 - 파일 상단 자동 생성 주석 금지
-- 저작권 표시: `# Copyright (c) 2025 GM Technical Center Korea — PQDQ Team`
+- 저작권 표시: `# Copyright (c) 2025 Philip Choi`
 - 함수/클래스 한국어 docstring 작성
 - `print()` 대신 `logging` 모듈 사용 (Cloud 이전 대비 구조화 로깅)
 - 모든 경로 처리: `pathlib.Path` 기반 (`os.path` 금지)
@@ -90,7 +90,7 @@ Phase 4 완료 = v1.0 출시. GMTCK 내 여러 팀에 정식 배포.
 
 ### Frontend (TypeScript)
 - 모든 주석 한국어 작성
-- 저작권 표시: `// Copyright (c) 2025 GM Technical Center Korea — PQDQ Team`
+- 저작권 표시: `// Copyright (c) 2025 Philip Choi`
 - AI 관련 주석 금지
 - 파일 확장자: `.tsx` (컴포넌트), `.ts` (유틸리티)
 - Tailwind CSS 유틸리티 클래스 사용, 인라인 스타일 최소화
@@ -310,9 +310,14 @@ vehicle-web-viewer/
 
 ## Phase 현황
 - [x] Phase 1: GLB 압축 파이프라인 + FastAPI 파일 서버 ✅
-- [ ] Phase 2: 기본 뷰어 (차량 선택 + Babylon.js 렌더링 + 회전/줌/이동)
-- [ ] Phase 3: 퀄리티 업 (PBR + IBL + 후처리 + 안정화)
+- [x] Phase 2: 기본 뷰어 (React + Babylon.js + WebGPU + 차량 선택/전환) ✅
+  - ⚠️ 메모리 누수 잔존 (약 +78MB/10회 전환) — Phase 4 진입 전 해결 필수
+- [ ] **Phase 3: 퀄리티 업 — 3개 하위 단계로 분할**
+  - [ ] Phase 3a: IBL + PBR 검증 + near/far 자동 + 반사 바닥 + 기본 후처리
+  - [ ] Phase 3b: 태양광 컨트롤 (Azimuth/Elevation/Intensity) + 실시간 그림자 + Bloom
+  - [ ] Phase 3c: 환경 프리셋 + 카메라 프리셋 + 사이드바 Accordion
 - [ ] **Phase 4: 인터랙션 + v1.0 출시** (파츠 클릭/숨기기/색상변경/문 애니메이션)
+  - [ ] 메모리 누수 완전 해결 (Phase 2에서 이월)
 - [ ] Phase 5: WebXR VR 연동 **(선택적 — 사용자 수요에 따라 결정)**
 - [ ] Phase 6: 인증(SSO) + Cloud 이전 검토
 
@@ -336,18 +341,19 @@ vehicle-web-viewer/
 - [x] 스토리지 추상화 배치
 - [ ] ⚠️ draw_calls/material_count/vertex_count 정상 추출 (후속 수정 중)
 
-### Phase 2 → Phase 3 전환 조건
-- [ ] 브라우저에서 차량 선택 사이드바 정상 표시
-- [ ] `WebGPUEngine.IsSupportedAsync` 기반 자동 감지 + 전환 확인
-- [ ] Meshopt / KTX2 디코더 정상 등록, GLB 로딩 후 차량 표시
-- [ ] ArcRotateCamera로 회전/줌/이동 정상 동작
-- [ ] 차량 전환 시 scene.dispose() 정상 동작 (메모리 계측 로그 확인)
-- [ ] 기준 기기에서 30fps 이상
-- [ ] 드로우콜 500 이하, 머티리얼 50 이하 확인
-- [ ] KTX2 트랜스코딩 포맷 실측 (콘솔 로그)
-- [ ] 해시 기반 캐시 버스팅 동작
-- [ ] 개발자 모드 패널 (?dev=1) 동작 — 엔진 종류, FPS, draw calls, 메모리 표시
-- [ ] **벤치마크 기록 append 완료**
+### Phase 2 → Phase 3 전환 조건 ✅ (2026-04-10 완료)
+- [x] 차량 선택 사이드바 정상 표시
+- [x] WebGPU 자동 감지 + 초기화 (개인 데스크탑 RTX 3060 기준)
+- [x] Meshopt / KTX2 디코더 정상 등록, GLB 표시
+- [x] ArcRotateCamera 회전/줌/이동
+- [x] scene.dispose() 정상 동작 (소유권 추적 패턴 적용)
+- [x] 개인 데스크탑에서 120fps (RTX 3060)
+- [ ] 회사 노트북(Intel Iris Xe)에서 재측정 필요 — **Phase 3a 완료 후 측정 예정**
+- [x] 드로우콜 75, 머티리얼 14 — 한계(500/50) 이내
+- [x] 해시 기반 캐시 버스팅 동작
+- [x] DevPanel (?dev=1) 동작
+- [x] 벤치마크 기록 append 완료
+- [ ] ⚠️ **메모리 누수 잔존** (GC 후 +78MB/10회 전환) — Phase 4 진입 전 해결 필수
 
 ### Phase 3 → Phase 4 전환 조건
 - [ ] PBR 재질 적용 (금속/페인트/유리 구분)
@@ -383,8 +389,45 @@ vehicle-web-viewer/
 - [ ] 비용 승인 프로세스
 
 ## 벤치마크 기록 (Phase 완료 시 append)
-_아직 없음_
+### Phase 2 완료 (2026-04-10)
+
+**개발 환경:** Ryzen 9 7950X + RTX 3060 + 64GB + Win11 + Chrome (WebGPU)
+- porsche_911 / exterior
+- FPS: 120, Meshes: 76, Materials: 14, Textures: 34, Vertices: 156297
+- Initial JS Heap: ~112MB, 10회 전환 후 GC 후: ~189MB (⚠️ 누수)
+- Metadata Draw Calls: 75
+
+**기준 기기 측정 TODO:** GMTCK 회사 노트북 (Intel Iris Xe) — Phase 3a 완료 후 예정
 
 ## 실패 기록 (작업하면서 추가)
+
+### Phase 2
+- **메모리 누수 미해결 (Phase 4 전 해결 필수)**: 10회 차량 전환 시 +78MB. WebGPUBindGroupCacheNode +11424, Observable +1331, Vector3 +3938 등. 3차 시도(7단계 dispose + ResetCache)는 역효과(871MB)로 롤백. 2차 상태(소유권 추적)로 복귀. 교훈: Babylon.js Observable clear와 WebGPU 캐시 강제 비우기는 위험.
+- **SceneLoader 확장자 인식 실패**: URL 쿼리 파라미터 있으면 .glb 추론 못 함. ImportMeshAsync 7번째 인자로 .glb 명시 필요.
+- **ResizeObserver stuttering**: 사이드바 애니메이션 중 engine.resize 폭주. requestAnimationFrame 디바운싱으로 해결.
 ### Phase 1
 - `gltf-transform inspect --format json` 지원하지 않음 (v4.3.0, 지원 포맷: pretty/csv/md). Python GLB 파서로 대체 필요.
+
+---
+
+## 벤치마크 기록 추가 (2026-04-10, Phase 2 완료)
+
+**개발 환경 (개인 데스크탑)**
+- CPU: AMD Ryzen 9 7950X / GPU: RTX 3060 / RAM: 64GB / Windows 11
+- Babylon.js 9.2.0 WebGPU
+- porsche_911 exterior: FPS 120, Meshes 76, Materials 14, Vertices 156,297
+- 초기 JS Heap ~112MB, 10회 전환 + GC 후 ~189MB (+77MB 누수)
+
+**기준 기기 (회사 노트북)** — Phase 3a 완료 후 측정 예정
+
+## 실패 기록 (Phase 2)
+
+### 메모리 누수 (미해결, Phase 4 전 해결 필수)
+- WebGPUBindGroupCacheNode +6,738, Observable +1,331 누적
+- 시도 1: scene.dispose(true, true) + 텍스처 캐시 정리 → 절반 감소
+- 시도 2 (역효과): Observable .clear() 10개 + releaseEffects + ResetCache → 871MB 4배 악화. 롤백.
+- 교훈: Babylon.js 내부 Observable 수동 clear는 렌더 루프 파괴. ResetCache는 즉시 재생성되어 역효과.
+- 재시도 방향: engine.wipeCaches(true) 공식 API, 버전 업그레이드, WebGL 2.0 비교
+
+## 규칙 변경 이력
+- 2026-04-10: 저작권 `Philip Choi`로 변경
