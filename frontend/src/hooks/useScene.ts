@@ -10,6 +10,7 @@ import { useCallback, useRef } from 'react'
 import { Scene } from '@babylonjs/core/scene'
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight'
 import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera'
+import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight'
 import { Vector3 } from '@babylonjs/core/Maths/math.vector'
 import { CubeTexture } from '@babylonjs/core/Materials/Textures/cubeTexture'
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder'
@@ -106,9 +107,15 @@ export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
     camera.attachControl(true)
     cameraRef.current = camera
 
-    // 기본 조명
-    const light = new HemisphericLight('light', new Vector3(0, 1, 0), scene)
-    light.intensity = 1.0
+    // 앰비언트 (DirectionalLight 도입으로 약화)
+    const ambient = new HemisphericLight('ambient', new Vector3(0, 1, 0), scene)
+    ambient.intensity = 0.4
+
+    // 주광 (3b-2 슬라이더 제어 예정)
+    // position은 DirectionalLight 계산엔 무관(무한원점)이나 3b-4 ShadowGenerator frustum 기준점
+    const sun = new DirectionalLight('sun', new Vector3(-0.5, -1, -0.5).normalize(), scene)
+    sun.intensity = 2.0
+    sun.position = new Vector3(5, 10, 5)
 
     // IBL 환경 텍스처 (PBR 반사용)
     const envTexture = CubeTexture.CreateFromPrefilteredData(
@@ -139,6 +146,7 @@ export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
     skyboxRef.current = skybox ?? null
 
     logger.debug('[후처리] ACES 톤매핑 + FXAA 활성화')
+    logger.debug('[조명] DirectionalLight intensity=2.0, ambient=0.4')
 
     return scene
   }, [engine])
