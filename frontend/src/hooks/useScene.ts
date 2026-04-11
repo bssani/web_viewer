@@ -12,6 +12,9 @@ import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight'
 import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera'
 import { Vector3 } from '@babylonjs/core/Maths/math.vector'
 import { CubeTexture } from '@babylonjs/core/Materials/Textures/cubeTexture'
+import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder'
+import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial'
+import { Color3 } from '@babylonjs/core/Maths/math.color'
 import '@babylonjs/core/Helpers/sceneHelpers'
 import type { IDisposable } from '@babylonjs/core/scene'
 import type { Mesh } from '@babylonjs/core/Meshes/mesh'
@@ -28,6 +31,8 @@ export interface SceneManager {
   createScene: () => Scene
   /** 카메라를 모델 바운딩 박스에 맞춤 */
   fitCameraToScene: (scene: Scene) => void
+  /** 반사 바닥 생성 (차량 최저점 기준) */
+  createGround: (minY: number) => void
 }
 
 export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
@@ -130,13 +135,11 @@ export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
     // 스카이박스/루트노드/빈BB 제외한 유효 mesh만 사용
     const allMeshes = scene.meshes.filter((m) => m.getTotalVertices() > 0)
     const meshes = allMeshes.filter((m) => {
-      if (m.name === 'hdrSkyBox' || m.name === '__root__') return false
+      if (m.name === 'hdrSkyBox' || m.name === '__root__' || m.name === 'ground') return false
       const bb = m.getBoundingInfo().boundingBox
       return Vector3.Distance(bb.minimumWorld, bb.maximumWorld) > 0
     })
     logger.debug(`[fitCamera] 전체 ${allMeshes.length}개 → 필터 후 ${meshes.length}개`)
-    // [진단] fitCamera에 포함되는 mesh 이름 출력
-    logger.debug('[fitCamera 진단] meshes:', meshes.map((m) => m.name))
     if (meshes.length === 0) return
 
     let min = new Vector3(Infinity, Infinity, Infinity)
@@ -166,5 +169,24 @@ export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
     })
   }, [])
 
-  return { sceneRef, cameraRef, createScene, fitCameraToScene }
+  const createGround = useCallback((minY: number) => {
+    const scene = sceneRef.current
+    if (!scene) return
+
+    // 반사 바닥 (PBR — IBL 환경 반사)
+    const ground = MeshBuilder.CreateGround('ground', { width: 20, height: 20 }, scene)
+    const groundMat = new PBRMaterial('groundMat', scene)
+    groundMat.albedoColor = new Color3(0.1, 0.1, 0.1)
+    groundMat.metallic = 0
+    groundMat.roughness = 0.2
+    ground.material = groundMat
+    ground.position.y = minY - 0.01 // z-fighting 방지
+
+    // dispose 시 일괄 해제
+    ownedResourcesRef.current.push(ground, groundMat)
+
+    logger.debug(`[바닥] y=${ground.position.y.toFixed(3)}`)
+  }, [])
+
+  return { sceneRef, cameraRef, createScene, fitCameraToScene, createGround }
 }

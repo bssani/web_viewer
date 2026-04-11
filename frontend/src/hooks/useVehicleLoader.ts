@@ -23,7 +23,7 @@ import { logger } from '../utils/logger'
 function adjustCameraClipping(camera: ArcRotateCamera, meshes: AbstractMesh[]) {
   // 스카이박스/루트노드/빈BB 제외
   const filtered = meshes.filter((m) => {
-    if (m.name === 'hdrSkyBox' || m.name === '__root__') return false
+    if (m.name === 'hdrSkyBox' || m.name === '__root__' || m.name === 'ground') return false
     const bb = m.getBoundingInfo().boundingBox
     return Vector3.Distance(bb.minimumWorld, bb.maximumWorld) > 0
   })
@@ -37,11 +37,8 @@ function adjustCameraClipping(camera: ArcRotateCamera, meshes: AbstractMesh[]) {
   let min = new Vector3(Infinity, Infinity, Infinity)
   let max = new Vector3(-Infinity, -Infinity, -Infinity)
 
-  // [진단] 각 mesh 이름 + 바운딩 크기 출력
   for (const m of filtered) {
     const bb = m.getBoundingInfo().boundingBox
-    const size = bb.maximumWorld.subtract(bb.minimumWorld).length()
-    logger.debug(`[clipping 진단] mesh="${m.name}" bbSize=${size.toFixed(1)}`)
     min = Vector3.Minimize(min, bb.minimumWorld)
     max = Vector3.Maximize(max, bb.maximumWorld)
   }
@@ -148,14 +145,21 @@ export function useVehicleLoader(
           newScene!.executeWhenReady(() => resolve())
         })
 
-        // [진단] scene.meshes vs loader meshes 비교
-        logger.debug('[진단] scene.meshes:', newScene.meshes.map((m) => m.name))
-
         // 카메라 자동 fit + 클리핑 조정
         sceneManager.fitCameraToScene(newScene)
         if (sceneManager.cameraRef.current) {
           adjustCameraClipping(sceneManager.cameraRef.current, newScene.meshes)
         }
+
+        // 차량 최저점 계산 (반사 바닥 배치용)
+        let vehicleMinY = 0
+        for (const m of newScene.meshes) {
+          if (m.name === 'hdrSkyBox' || m.name === '__root__' || m.name === 'ground') continue
+          if (m.getTotalVertices() === 0) continue
+          m.computeWorldMatrix(true)
+          vehicleMinY = Math.min(vehicleMinY, m.getBoundingInfo().boundingBox.minimumWorld.y)
+        }
+        sceneManager.createGround(vehicleMinY)
 
         // 렌더 루프 시작 (중복 방지)
         if (!engine.activeRenderLoops.length) {
