@@ -76,6 +76,18 @@ Phase 4 완료 = v1.0 출시. GMTCK 내 여러 팀에 정식 배포.
 - 파일명 대문자 금지 — 모든 저장 파일명 소문자 강제 (Cloud 이전 시 Linux 호환성)
 - 관리자 권한 기본 실행 금지 — 네트워크 드라이브 필요 시 UNC 경로(`\\server\share`) 직접 사용
 - `simplify` 옵션 자동 적용 금지 — 메시 형상 손상 위험, 수동 플래그로만 활성화
+- **차량 전환 경로(loadVehicle 흐름)에서 logger.info/warn 호출 최소화** — Phase 3a-3 측정에서 logger 호출이 dev console retention buffer에 누적되어 +79MB 누수 가설 확인됨. 매 mesh 순회 안 logger.debug 절대 금지.
+- **Babylon.js 클래스 import 시 instanceof 체크 주의** — `instanceof PBRMaterial` 같은 패턴은 클래스 메타데이터 캐싱을 일으킬 수 있음. 대신 `material.getClassName() === "PBRMaterial"` 사용.
+- **createDefaultSkybox(envTexture, true, size) 사용 시 size를 차량 단위에 맞춰야 함** — size 인자는 mesh의 실제 박스 크기. 차량 AABB 계산 함수에서 반드시 필터링 필요. Phase 3a-2에서 size=1000(미터)으로 설정해 차량(7m)을 가리는 사고 발생.
+- **scene.meshes 전체를 카메라 fit/clipping 계산에 그대로 넘기지 말 것** — 스카이박스(`hdrSkyBox`), 루트 헬퍼 노드(`__root__`), 반사 바닥(`ground`), bbSize 0인 mesh 모두 제외 필요.
+- **차량 전환 진단 로그는 검증 후 즉시 제거, 커밋 금지** — 진단 로그가 logger retention 누적의 큰 기여자.
+- **Babylon.js deep import 시 SceneComponent side-effect import 동반 필수** — ShadowGenerator, DefaultRenderingPipeline 등 deep path로 import할 때 scene 등록용 SceneComponent가 함께 로드 안 됨. 예: `import '@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent'` 누락 시 런타임 에러("needs to be imported before"). Phase 3b-4에서 실측.
+- **useCallback 간 참조 시 선언 순서 명시** — A가 deps에 B를 포함하면 B를 A보다 먼저 선언. JavaScript const 호이스팅 규칙상 TDZ(Temporal Dead Zone) 에러 발생. TypeScript typecheck 통과하지만 런타임 ReferenceError. Phase 3b-4에서 실측.
+- **Babylon.js 객체 dispose 패턴 구분**:
+  - `DirectionalLight`, `HemisphericLight`, `ArcRotateCamera`: `scene.dispose()` 자동 해제 → `ownedResourcesRef.push` 금지 (이중 dispose)
+  - `ShadowGenerator`, `DefaultRenderingPipeline`, `CubeTexture`, `Mesh` (수동 생성): GPU 리소스 소유 → `ownedResourcesRef.push` 필수
+- **기능 토글 시 객체 재생성 금지** — ShadowGenerator, DefaultRenderingPipeline 등을 OFF 시 dispose하고 ON 시 재생성하면 셰이더 재컴파일 + Effect 객체 누적 + GPU RTT 누수. `sg.refreshRate=0` + `sg.darkness=1.0`, `pipeline.bloomEnabled=false` 같은 불린 토글만 사용.
+- **슬라이더/onChange/반복 콜백 내 logger 호출 금지** — 초당 60+ 호출 경로는 logger retention 누수 직격. Phase 3b-2 슬라이더, 3b-4 updateSunPosition 경로에 적용.
 
 ## 코드 작성 규칙
 
@@ -95,6 +107,13 @@ Phase 4 완료 = v1.0 출시. GMTCK 내 여러 팀에 정식 배포.
 - 파일 확장자: `.tsx` (컴포넌트), `.ts` (유틸리티)
 - Tailwind CSS 유틸리티 클래스 사용, 인라인 스타일 최소화
 - `console.log` 대신 환경별 로깅 유틸리티 (dev 모드에서만 출력)
+- **차량 전환 경로 logger 사용 제약** (Phase 3a-3 학습):
+  - loadVehicle, dispose, scene 생성 흐름에서 호출되는 logger.info/warn은 1단계당 1~2개로 제한
+  - 반복문 내부 logger.debug 절대 금지 (mesh 76개 × N회 = 즉시 retention 누적)
+  - 진단 로그는 검증 직후 별도 커밋으로 제거 (커밋에 남기지 말 것)
+  - 운영 로그는 1회당 정보 가치 명확히
+- **Babylon.js Material 클래스 instanceof 사용 금지**: `material.getClassName() === "ClassName"` 사용
+- **scene.meshes / scene.materials 전체 순회 시 필터 필수**: hdrSkyBox, __root__, ground, bbSize 0 등 비차량 mesh 제외 인라인 필터 적용
 
 ## 성능 목표 (항상 지킬 것)
 - 타겟 기기: 일반 노트북 (Intel 내장 그래픽 포함)
@@ -165,6 +184,65 @@ BABYLON.KhronosTextureContainer2.URLConfig.wasmUASTCToBC7 = "/libs/ktx2Transcode
 - `engine.dispose()`는 페이지 언로드(`beforeunload`) 시점에만
 - 사용하지 않는 텍스처 즉시 GPU 메모리에서 해제
 
+### Phase 3a 학습 — dispose 패턴
+
+**ownedResources 추적 vs 별도 ref 선택 기준:**
+- 단순 `dispose()` 호출로 충분 → `ownedResourcesRef` (envTexture, ground, groundMat, pipeline)
+- dispose 인자가 필요 → 별도 ref (skybox는 `dispose(false, true)` 필요 → `skyboxRef`)
+
+**dispose 순서 (검증된 패턴):**
+```typescript
+// useScene.ts dispose 루틴
+1. engine.stopRenderLoop()                          // 렌더 중지
+2. ownedResourcesRef.current.forEach(r => r.dispose())  // envTexture, pipeline, ground, groundMat
+3. ownedResourcesRef.current = []                   // 배열 리셋
+4. skyboxRef.current?.dispose(false, true)          // 머티리얼+텍스처 동시 해제
+5. skyboxRef.current = null
+6. scene.environmentTexture = null                  // 참조 끊기
+7. scene.dispose()
+8. cameraRef.current = null
+9. engine.getLoadedTexturesCache() 강제 정리
+```
+
+**검증된 사실 (Phase 3a-3 격리 테스트):**
+- `DefaultRenderingPipeline`은 environmentTexture 직접 의존 없음 → ownedResources에 envTexture와 함께 push 안전
+- `pipeline.dispose()`는 인자 없이 호출 가능
+- `createDefaultSkybox`는 PBR 머티리얼 자동 생성 → 명시적 `dispose(false, true)` 필수
+
+### Phase 3b 학습 — 확장된 dispose 패턴
+
+**ownedResourcesRef 등록 대상 (Phase 3b 기준 전체):**
+- `envTexture` (CubeTexture)
+- `pipeline` (DefaultRenderingPipeline) — bloom RT 포함하여 한 번에 dispose
+- `ground` + `groundMat`
+- `shadowGenerator` — GPU shadow map 텍스처 소유 (3b-4)
+
+**ownedResourcesRef 등록 금지 대상:**
+- `sun` (DirectionalLight), `ambient` (HemisphericLight), `camera` (ArcRotateCamera) — scene.dispose() 자동 해제
+
+**UI ↔ 로직 ↔ Babylon 3층 분리 패턴 (3b-2 이후 확정):**
+```
+LightingPanel.tsx          (UI/스타일, 교체 가능)
+  ↓ props
+useLightingControl.ts      (React state + Babylon 조작 로직)
+  ↓ sceneManager 메서드 호출
+useScene.ts                (Babylon 객체 owner)
+  - sceneRef, cameraRef, sunRef, shadowGeneratorRef, pipelineRef
+  - setShadowsEnabled, setBloomEnabled, updateSunPosition 등 메서드
+```
+UI 디자인 변경 시 `LightingPanel.tsx` 1개만 교체 (shadcn/MUI 등 후일 도입 가능).
+
+**차량 전환 시 조명 state 복원 (resync 패턴, 3b-2 이후 확정):**
+- 차량 로드 후 `currentVehicleId` 변경 → useEffect에서 `lighting.resync()` 호출
+- resync 내부: sun.direction/intensity/position + shadowsEnabled + bloomEnabled 전부 재적용
+- useEffect deps는 `[currentVehicleId]`만 (lighting 객체 전체 deps 금지, 매 렌더 새 참조로 무한 재실행)
+- `eslint-disable-next-line react-hooks/exhaustive-deps` 주석 허용
+
+**Pivot 유동 배치 패턴 (3b-4):**
+- fitCameraToScene에서 차량 bounding box의 `{ center, diagonal }`을 ref에 저장
+- 슬라이더 setter / applyPreset / resync 4곳에서 `updateSunPosition()` 호출
+- sun.position = `center - sun.direction.scale(diagonal * 1.5)` → shadow frustum 잘림 방지
+
 ### 메모리 계측 (dev 모드 필수)
 ```javascript
 console.log({
@@ -182,6 +260,13 @@ console.log({
 - 프론트엔드는 먼저 `/vehicles/{id}` 메타데이터 fetch 후, GLB URL에 해시 쿼리 파라미터 부착
 - metadata.json: `Cache-Control: no-cache`
 - GLB: `Cache-Control: public, max-age=3600`
+
+## 차량 GLB 단위 (확정)
+- 단위: **미터(m)**
+- porsche_911 가장 큰 부품(Object_140) bbSize = 7.0
+- 평균 차량 diagonal: 7~10m
+- 모든 거리 기반 계산(스카이박스 size, 카메라 minZ/maxZ, 조명 위치, 카메라 프리셋 거리)은 미터 가정
+- Sketchfab 등 외부 GLB는 단위 다를 수 있음 — Phase 3a 검증용으로만 사용, 실제 GMTCK 차량 검증은 Phase 4 후
 
 ## 차량 구조 (GLB 분리 기준)
 - `exterior.glb` — 외장 (초기 로딩 대상)
@@ -239,11 +324,14 @@ vehicle-web-viewer/
 │   │   │   ├── Viewer.tsx           # Babylon.js 캔버스 래퍼
 │   │   │   ├── LoadingBar.tsx       # GLB 로딩 진행률
 │   │   │   ├── ErrorMessage.tsx     # 에러 표시 + 재시도
-│   │   │   └── DevPanel.tsx         # 개발자 모드 패널
+│   │   │   ├── DevPanel.tsx         # 개발자 모드 패널
+│   │   │   ├── LightingPanel.tsx    # 조명/그림자/블룸 제어 UI (3b)
+│   │   │   └── LightingPanel.module.css
 │   │   ├── hooks/
 │   │   │   ├── useEngine.ts         # Babylon.js 엔진 초기화 (WebGPU/WebGL)
-│   │   │   ├── useScene.ts          # 씬 관리, dispose
-│   │   │   └── useVehicleLoader.ts  # GLB 로딩 + 진행률
+│   │   │   ├── useScene.ts          # 씬 관리, dispose, sun/shadow/pipeline ref
+│   │   │   ├── useVehicleLoader.ts  # GLB 로딩 + 진행률 + registerShadowCasters
+│   │   │   └── useLightingControl.ts # 조명 state + Azimuth/Elevation 변환 (3b)
 │   │   ├── services/
 │   │   │   └── api.ts               # FastAPI 호출 (차량 목록, 메타데이터)
 │   │   ├── types/
@@ -311,15 +399,35 @@ vehicle-web-viewer/
 ## Phase 현황
 - [x] Phase 1: GLB 압축 파이프라인 + FastAPI 파일 서버 ✅
 - [x] Phase 2: 기본 뷰어 (React + Babylon.js + WebGPU + 차량 선택/전환) ✅
-  - ⚠️ 메모리 누수 잔존 (약 +78MB/10회 전환) — Phase 4 진입 전 해결 필수
-- [ ] **Phase 3: 퀄리티 업 — 3개 하위 단계로 분할**
-  - [ ] Phase 3a: IBL + PBR 검증 + near/far 자동 + 반사 바닥 + 기본 후처리
-  - [ ] Phase 3b: 태양광 컨트롤 (Azimuth/Elevation/Intensity) + 실시간 그림자 + Bloom
-  - [ ] Phase 3c: 환경 프리셋 + 카메라 프리셋 + 사이드바 Accordion
-- [ ] **Phase 4: 인터랙션 + v1.0 출시** (파츠 클릭/숨기기/색상변경/문 애니메이션)
-  - [ ] 메모리 누수 완전 해결 (Phase 2에서 이월)
-- [ ] Phase 5: WebXR VR 연동 **(선택적 — 사용자 수요에 따라 결정)**
+  - ⚠️ 메모리 누수 잔존 — Phase 4 진입 전 해결 필수
+- [x] **Phase 3a 완료** (2026-04-12): IBL + PBR + 반사 바닥 + ToneMapping + FXAA ✅
+- [x] **Phase 3b 완료** (2026-04-12): 태양광 컨트롤 + 프리셋 5개 + 실시간 그림자 + Bloom ✅
+- [ ] Phase 3c: 환경 프리셋 + 카메라 프리셋 + 사이드바 Accordion
+- [ ] **Phase 4: 인터랙션 + v1.0 출시**
+  - [ ] 메모리 누수 본진 해결 (logger retention 1순위)
+  - [ ] 기준 기기(Intel Iris Xe) 통합 측정
+- [ ] Phase 5: WebXR VR 연동 (선택적)
 - [ ] Phase 6: 인증(SSO) + Cloud 이전 검토
+
+## Phase 4 사전 검토 항목 (Phase 3a 학습 누적)
+
+진입 시 반드시 검토할 8가지:
+
+1. **logger 호출 retention 누수 (1순위)**: dev console message buffer 누적 가설. Phase 3a-3 측정 Y vs Z에서 +79MB 차이 확인. 매 차량 전환마다 호출되는 logger.info/warn이 dispose되지 않음.
+2. **이벤트 리스너 / 클로저 누수 점검 (2순위)**: window.addEventListener 해제 여부, 외부 변수 캡처 클로저 검토. Phase 3a 종료 시 미점검 영역.
+3. **Babylon.js 9.2.0 → 최신 비교 (3순위)**: 버전 업그레이드로 Phase 2 누수 해결 가능성.
+4. **Sample Vehicle dispose 경로**: 차량이 placeholder인 경우 일반 차량과 다른 dispose 경로 가능성.
+5. **ArcRotateCamera lowerRadiusLimit**: 차량 내부 진입 불가. interior.glb 로드 UX 확정 후 결정. 옵션: UniversalCamera 전환 vs lowerRadiusLimit=0.
+6. **비PBR 머티리얼 1개 (porsche_911)**: UE5 export 점검. Sketchfab GLB 특성 가능성.
+7. **Heap 측정 변동성 ±30MB**: 동일 코드 반복 측정 시 변동 폭. 측정 신뢰도 향상 방법 검토.
+8. **WebGL 2.0 모드 비교 (후순위)**: GPU 무관 누수 확인됨 (RTX 3060 vs RTX 5000 Ada 패턴 일치). 우선순위 낮춤.
+
+### Sketchfab GLB 사용 시 주의 (검증 환경 한정)
+- 단위 들쭉날쭉 (모델러별 차이)
+- 머티리얼 비표준 (PBR 변환 누락 가능)
+- 메시 이름 들쭉날쭉 (Phase 4 파츠 클릭 영향)
+- 머티리얼 병합 안 됨 (50개 상한 위반 가능)
+- **결론**: Sketchfab 차량은 Phase 3a/3b/3c 검증용으로만 사용. 실제 GMTCK 차량(UE5 → Datasmith) 검증은 Phase 4 후 v1.0 출시 전.
 
 ## 성능 벤치마크 기준 (회귀 감지용)
 - **기준 차량**: porsche_911 (exterior.glb)
@@ -356,12 +464,14 @@ vehicle-web-viewer/
 - [ ] ⚠️ **메모리 누수 잔존** (GC 후 +78MB/10회 전환) — Phase 4 진입 전 해결 필수
 
 ### Phase 3 → Phase 4 전환 조건
-- [ ] PBR 재질 적용 (금속/페인트/유리 구분)
-- [ ] IBL 환경 반사 적용
-- [ ] 후처리 (Bloom, SSAO, ToneMapping) 적용
-- [ ] 기준 기기에서 30fps 이상 유지 (Phase 2 대비 회귀 확인)
-- [ ] 다중 차량 로드/전환 안정성 확인
-- [ ] **벤치마크 기록 append 완료**
+- [x] PBR 재질 적용 (금속/페인트/유리 구분) ✅ Phase 3a
+- [x] IBL 환경 반사 적용 ✅ Phase 3a
+- [x] 후처리 (Bloom, ToneMapping) 적용 ✅ Phase 3a + 3b-5 (SSAO는 별도 phase)
+- [x] 실시간 그림자 (ShadowGenerator + PCF) ✅ Phase 3b-4
+- [x] 조명 컨트롤 (Azimuth/Elevation/Intensity + 프리셋) ✅ Phase 3b-2/3
+- [ ] 기준 기기에서 30fps 이상 유지 (Phase 2 대비 회귀 확인) — v1.0 출시 전 이연
+- [x] 다중 차량 로드/전환 안정성 확인 ✅ Phase 3b 전체 검증
+- [x] **벤치마크 기록 append 완료** ✅ Phase 3a, 3b
 
 ### Phase 4 = v1.0 출시 조건
 - [ ] 파츠 클릭 시 이름/정보 표시
@@ -388,6 +498,13 @@ vehicle-web-viewer/
 - [ ] 데이터 레지던시 / 보안 등급
 - [ ] 비용 승인 프로세스
 
+## 측정 환경별 의미 (혼동 방지)
+- **개인 데스크탑 (RTX 3060)**: 개발 환경 회귀 감지용. 절대 성능 측정 의미 없음.
+- **작업자 노트북 (RTX 5000 Ada)**: 개발 환경 보조 측정. 진짜 타겟 아님 (워크스테이션급 GPU).
+- **기준 기기 (Intel Iris Xe 일반 노트북)**: 진짜 타겟. CLAUDE.md 성능 목표(30fps 이상)의 검증 대상. **확보 어려움 → v1.0 출시 전 통합 테스트로 이연**.
+
+성능 목표 30fps는 위 세 번째 환경 기준. 첫 두 환경에서 60+/120+ 나오는 건 참고치일 뿐 보장 아님.
+
 ## 벤치마크 기록 (Phase 완료 시 append)
 ### Phase 2 완료 (2026-04-10)
 
@@ -398,6 +515,77 @@ vehicle-web-viewer/
 - Metadata Draw Calls: 75
 
 **기준 기기 측정 TODO:** GMTCK 회사 노트북 (Intel Iris Xe) — Phase 3a 완료 후 예정
+
+### Phase 3a 완료 (2026-04-12)
+
+**개발 환경 (개인 데스크탑):**
+- AMD Ryzen 9 7950X / RTX 3060 / 64GB / Win11 / Chrome WebGPU
+- porsche_911 / exterior
+- FPS: 120
+- Meshes: 78, Materials: 17, Textures: 36, Vertices: 156,325
+- Draw Calls: 75
+- 초기 JS Heap: 116MB
+- 10회 전환 + GC 후: 265MB (Delta +149MB)
+
+**작업자 노트북 (참고):**
+- Intel i7-13850HX / NVIDIA RTX 5000 Ada / 64GB / Win11 / Chrome WebGPU
+- FPS: 60 (60Hz 모니터 cap)
+- 초기 JS Heap: 110MB
+- 10회 전환 + GC 후: 260MB (Delta +150MB)
+- 누수 패턴 RTX 3060과 거의 일치 → JS 레벨 누수 확정 (GPU 무관)
+
+**기준 기기 (Intel Iris Xe 일반 사무용 노트북):**
+- ⏸ **검증 미완료** — 진짜 타겟 기기 확보 불가
+- v1.0 출시 전 통합 테스트 단계로 이연
+
+**기능 추가:**
+- logarithmicDepth + 동적 near/far (AABB 기반)
+- IBL (studio.env) + skybox (size=100m)
+- mesh 필터링 (hdrSkyBox, __root__, ground 제외)
+- 반사 바닥 (PBR 단색)
+- ToneMapping ACES + FXAA
+
+**커밋 히스토리:**
+- 642f6a6 3a-1: logarithmicDepth + 동적 near/far
+- fb5cc29 3a-2: IBL + 스카이박스 + AABB 필터
+- 852ac23 3a-3: 반사 바닥 + 진단 로그/PBR 검증 제거
+- 29b5599 3a-4: DefaultRenderingPipeline (ACES + FXAA)
+
+### Phase 3b 완료 (2026-04-12)
+
+**개발 환경 (개인 데스크탑):**
+- AMD Ryzen 9 7950X / RTX 3060 / 64GB / Win11 / Chrome WebGPU
+- porsche_911 / exterior, FPS: 120
+
+**단계별 Snapshot B (10회 전환 + GC 후):**
+| 단계 | Snapshot B | Effect Delta | RTT Delta |
+|---|---|---|---|
+| 3a 종료 | 265 MB | - | - |
+| 3b-1 DirectionalLight | 264 MB | +4 | - |
+| 3b-2 슬라이더 | 267 MB | +4 | - |
+| 3b-3 프리셋 5개 | 267 MB | +4 | - |
+| 3b-4 ShadowGenerator | 278 MB | +2 | +2 |
+| 3b-5 Bloom | 212 MB | +1 | +1 |
+
+측정 변동성 있음(±30MB). 모든 단계에서 임계치 통과, 누수 없음 확정.
+
+**기능 추가:**
+- 3b-1: DirectionalLight (intensity 2.0) + HemisphericLight를 ambient(0.4)로 약화
+- 3b-2: LightingPanel + Az/El/Intensity 슬라이더 (순수 React + CSS module, 의존성 0)
+- 3b-3: 조명 프리셋 5개 (아침/정오/저녁/밤/스튜디오)
+- 3b-4: ShadowGenerator 1024 + PCF Medium + sun.position 유동 배치 + 토글
+- 3b-5: Bloom (threshold 0.8 / weight 0.3 / kernel 64 / scale 0.5) + 토글
+
+**핵심 학습 (위 '절대 하면 안 되는 것' + 'Phase 3b 학습' 섹션에 반영됨):**
+1. Babylon deep import 시 SceneComponent side-effect import 동반
+2. useCallback 간 참조 시 선언 순서 (TDZ 에러 방지)
+3. 토글 패턴: 객체 재생성 금지, enabled 불린만 변경
+4. Light vs ShadowGenerator dispose 구분
+5. UI/로직/Babylon 3층 분리 (LightingPanel/useLightingControl/useScene)
+6. resync useEffect deps는 currentVehicleId만
+7. WebGPU 셰이더 캐싱 효율 우수 (차량 전환 시 Effect 재컴파일 거의 없음)
+
+**기준 기기 (Intel Iris Xe):** v1.0 출시 전 통합 테스트로 이연 (3a와 동일)
 
 ## 실패 기록 (작업하면서 추가)
 
@@ -428,6 +616,31 @@ vehicle-web-viewer/
 - 시도 2 (역효과): Observable .clear() 10개 + releaseEffects + ResetCache → 871MB 4배 악화. 롤백.
 - 교훈: Babylon.js 내부 Observable 수동 clear는 렌더 루프 파괴. ResetCache는 즉시 재생성되어 역효과.
 - 재시도 방향: engine.wipeCaches(true) 공식 API, 버전 업그레이드, WebGL 2.0 비교
+
+### Phase 3a-2 (2026-04-11)
+- **스카이박스 AABB 오염**: createDefaultSkybox(size=1000) 호출 후 차량 안 보임. 원인: adjustCameraClipping과 fitCameraToScene이 hdrSkyBox mesh(bbSize=1732)를 AABB에 포함시켜 카메라 maxZ가 173205로 폭주, 카메라가 차량에서 2598m 떨어진 곳으로 배치됨. 해결: 인라인 mesh 필터(`hdrSkyBox`, `__root__`, BB size 0 제외) + skybox size 1000 → 100.
+- **차량 단위 오해**: 디버깅 중 한때 차량을 밀리미터 단위로 추측했으나 실제는 미터. Object_140 bbSize=7.0 기준 확정.
+
+### Phase 3a-3 (2026-04-11) — 5번 측정 디버깅 사이클
+- **누수 폭증 +157MB**: 반사 바닥 추가 후 첫 측정 Snapshot B 279MB. 마지노선 226MB 크게 초과.
+- **가설 1 (폐기)**: PBRMaterial import side-effect → 측정 X(PBR 검증 비활성, ground 유지)에서 208MB로 정상화. ground 무죄 확인.
+- **가설 2 (폐기)**: getClassName() 우회 → 측정 Y에서 289MB로 오히려 악화. instanceof와 동일 결과.
+- **가설 3 (확정)**: logger.info/warn dev console retention → 측정 Z(filter 호출 유지, logger 호출 비활성)에서 210MB로 정상화. logger가 진범 확정. (concatenated string) delta 비교: 측정 Y +51,932 vs 측정 Z +41,146 → -10,786.
+- **교훈**: 진단 로그 5개(mesh별 출력 포함)가 logger retention 누적의 큰 기여자. 검증 후 즉시 제거 원칙 추가.
+- **최종 해결**: PBR 검증 코드 완전 제거(Phase 4 진입 전 수동 1회 검증으로 이관) + 진단 로그 5개 일괄 제거.
+
+### Phase 3a-4 (2026-04-12)
+- 큰 사고 없이 통과. dispose 순서 검토 단계에서 pipeline → envTexture 의존성 grep으로 사전 확인.
+- 결과적으로 3a-3 측정 변동성(±30MB)이 컸음을 확인 — 3a-4에서 누수 핵심 지표(WebGPUBindGroupCacheNode -62%, concatenated string -79%)가 오히려 개선됨.
+
+### Phase 3b-4 (2026-04-12)
+- **TDZ ReferenceError**: `fitCameraToScene`이 `updateSunPosition`을 deps와 본문에서 참조했는데 선언이 아래쪽이라 `Cannot access 'updateSunPosition' before initialization`. typecheck 통과, 런타임 첫 차량 로드 시 폭발. 해결: useCallback 선언 순서 재배치.
+- **Babylon side-effect import 누락**: `ShadowGenerator`를 deep import했으나 `shadowGeneratorSceneComponent`를 함께 import 안 해서 `ShadowGeneratorSceneComponent needs to be imported before` 에러. typecheck + dev 서버 시작은 OK, 첫 차량 로드 시 폭발. 해결: `import '@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent'` 1줄 추가.
+- **교훈**: Babylon deep import는 런타임 에러 가능성 있음. 다음 deep import(Bloom, SSAO 등) 사용 시 SceneComponent side-effect import 동반 체크 필수.
+
+### Phase 3b-5 (2026-04-12)
+- 큰 사고 없이 통과. 3b-4 학습(TDZ, side-effect import) 사전 점검으로 회피.
+- Snapshot B 212MB로 3b-4(278MB)보다 낮게 측정됨 — 측정 변동성(±30MB) 재확인.
 
 ## 규칙 변경 이력
 - 2026-04-10: 저작권 `Philip Choi`로 변경
