@@ -120,6 +120,8 @@ export function Viewer({ selectedVehicleId, isDevMode }: ViewerProps) {
         onPresetSelect={lighting.applyPreset}
         shadowsEnabled={lighting.shadowsEnabled}
         onShadowsToggle={lighting.setShadowsEnabled}
+        bloomEnabled={lighting.bloomEnabled}
+        onBloomToggle={lighting.setBloomEnabled}
       />
 
       {/* 개발자 모드 패널 */}

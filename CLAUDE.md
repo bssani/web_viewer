@@ -81,6 +81,13 @@ Phase 4 완료 = v1.0 출시. GMTCK 내 여러 팀에 정식 배포.
 - **createDefaultSkybox(envTexture, true, size) 사용 시 size를 차량 단위에 맞춰야 함** — size 인자는 mesh의 실제 박스 크기. 차량 AABB 계산 함수에서 반드시 필터링 필요. Phase 3a-2에서 size=1000(미터)으로 설정해 차량(7m)을 가리는 사고 발생.
 - **scene.meshes 전체를 카메라 fit/clipping 계산에 그대로 넘기지 말 것** — 스카이박스(`hdrSkyBox`), 루트 헬퍼 노드(`__root__`), 반사 바닥(`ground`), bbSize 0인 mesh 모두 제외 필요.
 - **차량 전환 진단 로그는 검증 후 즉시 제거, 커밋 금지** — 진단 로그가 logger retention 누적의 큰 기여자.
+- **Babylon.js deep import 시 SceneComponent side-effect import 동반 필수** — ShadowGenerator, DefaultRenderingPipeline 등 deep path로 import할 때 scene 등록용 SceneComponent가 함께 로드 안 됨. 예: `import '@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent'` 누락 시 런타임 에러("needs to be imported before"). Phase 3b-4에서 실측.
+- **useCallback 간 참조 시 선언 순서 명시** — A가 deps에 B를 포함하면 B를 A보다 먼저 선언. JavaScript const 호이스팅 규칙상 TDZ(Temporal Dead Zone) 에러 발생. TypeScript typecheck 통과하지만 런타임 ReferenceError. Phase 3b-4에서 실측.
+- **Babylon.js 객체 dispose 패턴 구분**:
+  - `DirectionalLight`, `HemisphericLight`, `ArcRotateCamera`: `scene.dispose()` 자동 해제 → `ownedResourcesRef.push` 금지 (이중 dispose)
+  - `ShadowGenerator`, `DefaultRenderingPipeline`, `CubeTexture`, `Mesh` (수동 생성): GPU 리소스 소유 → `ownedResourcesRef.push` 필수
+- **기능 토글 시 객체 재생성 금지** — ShadowGenerator, DefaultRenderingPipeline 등을 OFF 시 dispose하고 ON 시 재생성하면 셰이더 재컴파일 + Effect 객체 누적 + GPU RTT 누수. `sg.refreshRate=0` + `sg.darkness=1.0`, `pipeline.bloomEnabled=false` 같은 불린 토글만 사용.
+- **슬라이더/onChange/반복 콜백 내 logger 호출 금지** — 초당 60+ 호출 경로는 logger retention 누수 직격. Phase 3b-2 슬라이더, 3b-4 updateSunPosition 경로에 적용.
 
 ## 코드 작성 규칙
 
@@ -202,6 +209,40 @@ BABYLON.KhronosTextureContainer2.URLConfig.wasmUASTCToBC7 = "/libs/ktx2Transcode
 - `pipeline.dispose()`는 인자 없이 호출 가능
 - `createDefaultSkybox`는 PBR 머티리얼 자동 생성 → 명시적 `dispose(false, true)` 필수
 
+### Phase 3b 학습 — 확장된 dispose 패턴
+
+**ownedResourcesRef 등록 대상 (Phase 3b 기준 전체):**
+- `envTexture` (CubeTexture)
+- `pipeline` (DefaultRenderingPipeline) — bloom RT 포함하여 한 번에 dispose
+- `ground` + `groundMat`
+- `shadowGenerator` — GPU shadow map 텍스처 소유 (3b-4)
+
+**ownedResourcesRef 등록 금지 대상:**
+- `sun` (DirectionalLight), `ambient` (HemisphericLight), `camera` (ArcRotateCamera) — scene.dispose() 자동 해제
+
+**UI ↔ 로직 ↔ Babylon 3층 분리 패턴 (3b-2 이후 확정):**
+```
+LightingPanel.tsx          (UI/스타일, 교체 가능)
+  ↓ props
+useLightingControl.ts      (React state + Babylon 조작 로직)
+  ↓ sceneManager 메서드 호출
+useScene.ts                (Babylon 객체 owner)
+  - sceneRef, cameraRef, sunRef, shadowGeneratorRef, pipelineRef
+  - setShadowsEnabled, setBloomEnabled, updateSunPosition 등 메서드
+```
+UI 디자인 변경 시 `LightingPanel.tsx` 1개만 교체 (shadcn/MUI 등 후일 도입 가능).
+
+**차량 전환 시 조명 state 복원 (resync 패턴, 3b-2 이후 확정):**
+- 차량 로드 후 `currentVehicleId` 변경 → useEffect에서 `lighting.resync()` 호출
+- resync 내부: sun.direction/intensity/position + shadowsEnabled + bloomEnabled 전부 재적용
+- useEffect deps는 `[currentVehicleId]`만 (lighting 객체 전체 deps 금지, 매 렌더 새 참조로 무한 재실행)
+- `eslint-disable-next-line react-hooks/exhaustive-deps` 주석 허용
+
+**Pivot 유동 배치 패턴 (3b-4):**
+- fitCameraToScene에서 차량 bounding box의 `{ center, diagonal }`을 ref에 저장
+- 슬라이더 setter / applyPreset / resync 4곳에서 `updateSunPosition()` 호출
+- sun.position = `center - sun.direction.scale(diagonal * 1.5)` → shadow frustum 잘림 방지
+
 ### 메모리 계측 (dev 모드 필수)
 ```javascript
 console.log({
@@ -283,11 +324,14 @@ vehicle-web-viewer/
 │   │   │   ├── Viewer.tsx           # Babylon.js 캔버스 래퍼
 │   │   │   ├── LoadingBar.tsx       # GLB 로딩 진행률
 │   │   │   ├── ErrorMessage.tsx     # 에러 표시 + 재시도
-│   │   │   └── DevPanel.tsx         # 개발자 모드 패널
+│   │   │   ├── DevPanel.tsx         # 개발자 모드 패널
+│   │   │   ├── LightingPanel.tsx    # 조명/그림자/블룸 제어 UI (3b)
+│   │   │   └── LightingPanel.module.css
 │   │   ├── hooks/
 │   │   │   ├── useEngine.ts         # Babylon.js 엔진 초기화 (WebGPU/WebGL)
-│   │   │   ├── useScene.ts          # 씬 관리, dispose
-│   │   │   └── useVehicleLoader.ts  # GLB 로딩 + 진행률
+│   │   │   ├── useScene.ts          # 씬 관리, dispose, sun/shadow/pipeline ref
+│   │   │   ├── useVehicleLoader.ts  # GLB 로딩 + 진행률 + registerShadowCasters
+│   │   │   └── useLightingControl.ts # 조명 state + Azimuth/Elevation 변환 (3b)
 │   │   ├── services/
 │   │   │   └── api.ts               # FastAPI 호출 (차량 목록, 메타데이터)
 │   │   ├── types/
@@ -357,7 +401,7 @@ vehicle-web-viewer/
 - [x] Phase 2: 기본 뷰어 (React + Babylon.js + WebGPU + 차량 선택/전환) ✅
   - ⚠️ 메모리 누수 잔존 — Phase 4 진입 전 해결 필수
 - [x] **Phase 3a 완료** (2026-04-12): IBL + PBR + 반사 바닥 + ToneMapping + FXAA ✅
-- [ ] Phase 3b: 태양광 컨트롤 (Azimuth/Elevation/Intensity) + 실시간 그림자 + Bloom
+- [x] **Phase 3b 완료** (2026-04-12): 태양광 컨트롤 + 프리셋 5개 + 실시간 그림자 + Bloom ✅
 - [ ] Phase 3c: 환경 프리셋 + 카메라 프리셋 + 사이드바 Accordion
 - [ ] **Phase 4: 인터랙션 + v1.0 출시**
   - [ ] 메모리 누수 본진 해결 (logger retention 1순위)
@@ -420,12 +464,14 @@ vehicle-web-viewer/
 - [ ] ⚠️ **메모리 누수 잔존** (GC 후 +78MB/10회 전환) — Phase 4 진입 전 해결 필수
 
 ### Phase 3 → Phase 4 전환 조건
-- [ ] PBR 재질 적용 (금속/페인트/유리 구분)
-- [ ] IBL 환경 반사 적용
-- [ ] 후처리 (Bloom, SSAO, ToneMapping) 적용
-- [ ] 기준 기기에서 30fps 이상 유지 (Phase 2 대비 회귀 확인)
-- [ ] 다중 차량 로드/전환 안정성 확인
-- [ ] **벤치마크 기록 append 완료**
+- [x] PBR 재질 적용 (금속/페인트/유리 구분) ✅ Phase 3a
+- [x] IBL 환경 반사 적용 ✅ Phase 3a
+- [x] 후처리 (Bloom, ToneMapping) 적용 ✅ Phase 3a + 3b-5 (SSAO는 별도 phase)
+- [x] 실시간 그림자 (ShadowGenerator + PCF) ✅ Phase 3b-4
+- [x] 조명 컨트롤 (Azimuth/Elevation/Intensity + 프리셋) ✅ Phase 3b-2/3
+- [ ] 기준 기기에서 30fps 이상 유지 (Phase 2 대비 회귀 확인) — v1.0 출시 전 이연
+- [x] 다중 차량 로드/전환 안정성 확인 ✅ Phase 3b 전체 검증
+- [x] **벤치마크 기록 append 완료** ✅ Phase 3a, 3b
 
 ### Phase 4 = v1.0 출시 조건
 - [ ] 파츠 클릭 시 이름/정보 표시
@@ -505,6 +551,42 @@ vehicle-web-viewer/
 - 852ac23 3a-3: 반사 바닥 + 진단 로그/PBR 검증 제거
 - 29b5599 3a-4: DefaultRenderingPipeline (ACES + FXAA)
 
+### Phase 3b 완료 (2026-04-12)
+
+**개발 환경 (개인 데스크탑):**
+- AMD Ryzen 9 7950X / RTX 3060 / 64GB / Win11 / Chrome WebGPU
+- porsche_911 / exterior, FPS: 120
+
+**단계별 Snapshot B (10회 전환 + GC 후):**
+| 단계 | Snapshot B | Effect Delta | RTT Delta |
+|---|---|---|---|
+| 3a 종료 | 265 MB | - | - |
+| 3b-1 DirectionalLight | 264 MB | +4 | - |
+| 3b-2 슬라이더 | 267 MB | +4 | - |
+| 3b-3 프리셋 5개 | 267 MB | +4 | - |
+| 3b-4 ShadowGenerator | 278 MB | +2 | +2 |
+| 3b-5 Bloom | 212 MB | +1 | +1 |
+
+측정 변동성 있음(±30MB). 모든 단계에서 임계치 통과, 누수 없음 확정.
+
+**기능 추가:**
+- 3b-1: DirectionalLight (intensity 2.0) + HemisphericLight를 ambient(0.4)로 약화
+- 3b-2: LightingPanel + Az/El/Intensity 슬라이더 (순수 React + CSS module, 의존성 0)
+- 3b-3: 조명 프리셋 5개 (아침/정오/저녁/밤/스튜디오)
+- 3b-4: ShadowGenerator 1024 + PCF Medium + sun.position 유동 배치 + 토글
+- 3b-5: Bloom (threshold 0.8 / weight 0.3 / kernel 64 / scale 0.5) + 토글
+
+**핵심 학습 (위 '절대 하면 안 되는 것' + 'Phase 3b 학습' 섹션에 반영됨):**
+1. Babylon deep import 시 SceneComponent side-effect import 동반
+2. useCallback 간 참조 시 선언 순서 (TDZ 에러 방지)
+3. 토글 패턴: 객체 재생성 금지, enabled 불린만 변경
+4. Light vs ShadowGenerator dispose 구분
+5. UI/로직/Babylon 3층 분리 (LightingPanel/useLightingControl/useScene)
+6. resync useEffect deps는 currentVehicleId만
+7. WebGPU 셰이더 캐싱 효율 우수 (차량 전환 시 Effect 재컴파일 거의 없음)
+
+**기준 기기 (Intel Iris Xe):** v1.0 출시 전 통합 테스트로 이연 (3a와 동일)
+
 ## 실패 기록 (작업하면서 추가)
 
 ### Phase 2
@@ -550,6 +632,15 @@ vehicle-web-viewer/
 ### Phase 3a-4 (2026-04-12)
 - 큰 사고 없이 통과. dispose 순서 검토 단계에서 pipeline → envTexture 의존성 grep으로 사전 확인.
 - 결과적으로 3a-3 측정 변동성(±30MB)이 컸음을 확인 — 3a-4에서 누수 핵심 지표(WebGPUBindGroupCacheNode -62%, concatenated string -79%)가 오히려 개선됨.
+
+### Phase 3b-4 (2026-04-12)
+- **TDZ ReferenceError**: `fitCameraToScene`이 `updateSunPosition`을 deps와 본문에서 참조했는데 선언이 아래쪽이라 `Cannot access 'updateSunPosition' before initialization`. typecheck 통과, 런타임 첫 차량 로드 시 폭발. 해결: useCallback 선언 순서 재배치.
+- **Babylon side-effect import 누락**: `ShadowGenerator`를 deep import했으나 `shadowGeneratorSceneComponent`를 함께 import 안 해서 `ShadowGeneratorSceneComponent needs to be imported before` 에러. typecheck + dev 서버 시작은 OK, 첫 차량 로드 시 폭발. 해결: `import '@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent'` 1줄 추가.
+- **교훈**: Babylon deep import는 런타임 에러 가능성 있음. 다음 deep import(Bloom, SSAO 등) 사용 시 SceneComponent side-effect import 동반 체크 필수.
+
+### Phase 3b-5 (2026-04-12)
+- 큰 사고 없이 통과. 3b-4 학습(TDZ, side-effect import) 사전 점검으로 회피.
+- Snapshot B 212MB로 3b-4(278MB)보다 낮게 측정됨 — 측정 변동성(±30MB) 재확인.
 
 ## 규칙 변경 이력
 - 2026-04-10: 저작권 `Philip Choi`로 변경

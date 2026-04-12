@@ -54,6 +54,7 @@ export function useLightingControl(sceneManager: SceneManager) {
   const [state, setState] = useState<LightingState>(DEFAULT_LIGHTING)
   const [activePreset, setActivePreset] = useState<PresetId | null>(null)
   const [shadowsEnabled, setShadowsEnabledState] = useState<boolean>(true)
+  const [bloomEnabled, setBloomEnabledState] = useState<boolean>(true)
 
   const setAzimuth = useCallback((azimuth: number) => {
     const sun = sceneManager.sunRef.current
@@ -107,6 +108,11 @@ export function useLightingControl(sceneManager: SceneManager) {
     setShadowsEnabledState(enabled)
   }, [sceneManager])
 
+  const setBloomEnabled = useCallback((enabled: boolean) => {
+    sceneManager.setBloomEnabled(enabled)
+    setBloomEnabledState(enabled)
+  }, [sceneManager])
+
   /** 차량 전환 후 재동기화. Viewer.tsx의 useEffect에서 호출. */
   const resync = useCallback(() => {
     const sun = sceneManager.sunRef.current
@@ -115,11 +121,12 @@ export function useLightingControl(sceneManager: SceneManager) {
     sun.intensity = state.intensity
     sceneManager.updateSunPosition()
     sceneManager.setShadowsEnabled(shadowsEnabled)
-  }, [sceneManager, state, shadowsEnabled])
+    sceneManager.setBloomEnabled(bloomEnabled)
+  }, [sceneManager, state, shadowsEnabled, bloomEnabled])
 
   return {
-    state, activePreset, shadowsEnabled,
+    state, activePreset, shadowsEnabled, bloomEnabled,
     setAzimuth, setElevation, setIntensity,
-    setShadowsEnabled, applyPreset, resync,
+    setShadowsEnabled, setBloomEnabled, applyPreset, resync,
   }
 }
