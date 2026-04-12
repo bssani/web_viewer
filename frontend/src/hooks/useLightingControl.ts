@@ -53,6 +53,7 @@ export function azElToDirection(azimuthDeg: number, elevationDeg: number): Vecto
 export function useLightingControl(sceneManager: SceneManager) {
   const [state, setState] = useState<LightingState>(DEFAULT_LIGHTING)
   const [activePreset, setActivePreset] = useState<PresetId | null>(null)
+  const [shadowsEnabled, setShadowsEnabledState] = useState<boolean>(true)
 
   const setAzimuth = useCallback((azimuth: number) => {
     const sun = sceneManager.sunRef.current
@@ -61,6 +62,7 @@ export function useLightingControl(sceneManager: SceneManager) {
     setState((prev) => {
       const next = { ...prev, azimuth }
       sun.direction = azElToDirection(next.azimuth, next.elevation)
+      sceneManager.updateSunPosition()
       return next
     })
   }, [sceneManager])
@@ -72,6 +74,7 @@ export function useLightingControl(sceneManager: SceneManager) {
     setState((prev) => {
       const next = { ...prev, elevation }
       sun.direction = azElToDirection(next.azimuth, next.elevation)
+      sceneManager.updateSunPosition()
       return next
     })
   }, [sceneManager])
@@ -94,8 +97,14 @@ export function useLightingControl(sceneManager: SceneManager) {
     }
     sun.direction = azElToDirection(next.azimuth, next.elevation)
     sun.intensity = next.intensity
+    sceneManager.updateSunPosition()
     setState(next)
     setActivePreset(preset.id)
+  }, [sceneManager])
+
+  const setShadowsEnabled = useCallback((enabled: boolean) => {
+    sceneManager.setShadowsEnabled(enabled)
+    setShadowsEnabledState(enabled)
   }, [sceneManager])
 
   /** 차량 전환 후 재동기화. Viewer.tsx의 useEffect에서 호출. */
@@ -104,7 +113,13 @@ export function useLightingControl(sceneManager: SceneManager) {
     if (!sun) return
     sun.direction = azElToDirection(state.azimuth, state.elevation)
     sun.intensity = state.intensity
-  }, [sceneManager, state])
+    sceneManager.updateSunPosition()
+    sceneManager.setShadowsEnabled(shadowsEnabled)
+  }, [sceneManager, state, shadowsEnabled])
 
-  return { state, activePreset, setAzimuth, setElevation, setIntensity, applyPreset, resync }
+  return {
+    state, activePreset, shadowsEnabled,
+    setAzimuth, setElevation, setIntensity,
+    setShadowsEnabled, applyPreset, resync,
+  }
 }

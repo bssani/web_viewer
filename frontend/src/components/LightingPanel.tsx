@@ -19,11 +19,14 @@ export interface LightingPanelProps {
   onElevationChange: (value: number) => void
   onIntensityChange: (value: number) => void
   onPresetSelect: (preset: LightingPreset) => void
+  shadowsEnabled: boolean
+  onShadowsToggle: (enabled: boolean) => void
 }
 
 export function LightingPanel({
   azimuth, elevation, intensity, activePreset,
   onAzimuthChange, onElevationChange, onIntensityChange, onPresetSelect,
+  shadowsEnabled, onShadowsToggle,
 }: LightingPanelProps) {
   return (
     <div className={styles.panel}>
@@ -71,6 +74,19 @@ export function LightingPanel({
         <input type="range" min={0} max={5} step={0.1} value={intensity}
           onChange={(e) => onIntensityChange(Number(e.target.value))}
           className={styles.slider} />
+      </div>
+
+      {/* 그림자 토글 (3b-4) */}
+      <div className={styles.toggleRow}>
+        <label className={styles.toggleLabel}>
+          <input
+            type="checkbox"
+            checked={shadowsEnabled}
+            onChange={(e) => onShadowsToggle(e.target.checked)}
+            className={styles.checkbox}
+          />
+          <span>그림자</span>
+        </label>
       </div>
     </div>
   )

@@ -151,6 +151,9 @@ export function useVehicleLoader(
           adjustCameraClipping(sceneManager.cameraRef.current, newScene.meshes)
         }
 
+        // 그림자 caster 등록 (3b-4)
+        sceneManager.registerShadowCasters(newScene.meshes)
+
         // 차량 최저점 계산 (반사 바닥 배치용)
         let vehicleMinY = 0
         for (const m of newScene.meshes) {

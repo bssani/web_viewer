@@ -118,6 +118,8 @@ export function Viewer({ selectedVehicleId, isDevMode }: ViewerProps) {
         onElevationChange={lighting.setElevation}
         onIntensityChange={lighting.setIntensity}
         onPresetSelect={lighting.applyPreset}
+        shadowsEnabled={lighting.shadowsEnabled}
+        onShadowsToggle={lighting.setShadowsEnabled}
       />
 
       {/* 개발자 모드 패널 */}

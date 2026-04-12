@@ -16,10 +16,13 @@ import { CubeTexture } from '@babylonjs/core/Materials/Textures/cubeTexture'
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder'
 import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial'
 import { Color3 } from '@babylonjs/core/Maths/math.color'
+import { ShadowGenerator } from '@babylonjs/core/Lights/Shadows/shadowGenerator'
+import '@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent'
 import { DefaultRenderingPipeline } from '@babylonjs/core/PostProcesses/RenderPipeline/Pipelines/defaultRenderingPipeline'
 import { ImageProcessingConfiguration } from '@babylonjs/core/Materials/imageProcessingConfiguration'
 import '@babylonjs/core/Helpers/sceneHelpers'
 import type { IDisposable } from '@babylonjs/core/scene'
+import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh'
 import type { Mesh } from '@babylonjs/core/Meshes/mesh'
 import type { Engine } from '@babylonjs/core/Engines/engine'
 import type { WebGPUEngine } from '@babylonjs/core/Engines/webgpuEngine'
@@ -32,18 +35,28 @@ export interface SceneManager {
   cameraRef: React.MutableRefObject<ArcRotateCamera | null>
   /** 현재 주광 참조 (3b-2 슬라이더 제어용) */
   sunRef: React.MutableRefObject<DirectionalLight | null>
+  /** 현재 ShadowGenerator 참조 (3b-4) */
+  shadowGeneratorRef: React.MutableRefObject<ShadowGenerator | null>
   /** 기존 씬 dispose 후 새 씬 생성 */
   createScene: () => Scene
   /** 카메라를 모델 바운딩 박스에 맞춤 */
   fitCameraToScene: (scene: Scene) => void
   /** 반사 바닥 생성 (차량 최저점 기준) */
   createGround: (minY: number) => void
+  /** 차량 mesh를 shadow caster로 등록 (3b-4) */
+  registerShadowCasters: (meshes: AbstractMesh[]) => void
+  /** 그림자 ON/OFF 토글 (3b-4) */
+  setShadowsEnabled: (enabled: boolean) => void
+  /** sun.position을 차량 bounding box 기준 유동 배치 (3b-4) */
+  updateSunPosition: () => void
 }
 
 export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
   const sceneRef = useRef<Scene | null>(null)
   const cameraRef = useRef<ArcRotateCamera | null>(null)
   const sunRef = useRef<DirectionalLight | null>(null)
+  const shadowGeneratorRef = useRef<ShadowGenerator | null>(null)
+  const vehicleBoundsRef = useRef<{ center: Vector3; diagonal: number } | null>(null)
   const ownedResourcesRef = useRef<IDisposable[]>([])
   const skyboxRef = useRef<Mesh | null>(null)
 
@@ -78,6 +91,8 @@ export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
       sceneRef.current = null
       cameraRef.current = null
       sunRef.current = null
+      shadowGeneratorRef.current = null
+      vehicleBoundsRef.current = null
 
       // 엔진 텍스처 캐시 강제 정리 (scene.dispose가 남기는 잔여 텍스처 제거)
       const cache = engine?.getLoadedTexturesCache()
@@ -122,6 +137,18 @@ export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
     sun.position = new Vector3(5, 10, 5)
     sunRef.current = sun
 
+    // ShadowGenerator 생성 (3b-4)
+    const shadowGenerator = new ShadowGenerator(1024, sun)
+    shadowGenerator.usePercentageCloserFiltering = true
+    shadowGenerator.filteringQuality = ShadowGenerator.QUALITY_MEDIUM
+    shadowGenerator.bias = 0.001
+    shadowGenerator.normalBias = 0.02
+    shadowGenerator.darkness = 0.3
+    shadowGeneratorRef.current = shadowGenerator
+
+    // GPU 텍스처(shadow map) dispose 보장
+    ownedResourcesRef.current.push(shadowGenerator)
+
     // IBL 환경 텍스처 (PBR 반사용)
     const envTexture = CubeTexture.CreateFromPrefilteredData(
       `${import.meta.env.BASE_URL}env/studio.env`,
@@ -155,6 +182,46 @@ export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
 
     return scene
   }, [engine])
+
+  /** sun.position을 차량 bounding box 기준 유동 배치 */
+  const updateSunPosition = useCallback(() => {
+    const sun = sunRef.current
+    const bounds = vehicleBoundsRef.current
+    if (!sun || !bounds) return
+    // sun.direction의 반대 방향으로 diagonal*1.5만큼 떨어진 위치 = 빛의 출발점
+    const offset = bounds.diagonal * 1.5
+    sun.position = bounds.center.subtract(sun.direction.scale(offset))
+  }, [])
+
+  /** 차량 mesh를 shadow caster로 등록 (renderList 방어 클리어 포함) */
+  const registerShadowCasters = useCallback((meshes: AbstractMesh[]) => {
+    const sg = shadowGeneratorRef.current
+    if (!sg) return
+
+    const renderList = sg.getShadowMap()?.renderList
+    if (!renderList) return
+
+    // 방어적 클리어 — ShadowGenerator 재사용 시 이전 차량 mesh dangling 방지
+    renderList.length = 0
+
+    for (const m of meshes) {
+      if (m.name === 'hdrSkyBox' || m.name === '__root__' || m.name === 'ground') continue
+      if (m.getTotalVertices() === 0) continue
+      renderList.push(m)
+      m.receiveShadows = true  // self-shadowing
+    }
+  }, [])
+
+  /** 그림자 ON/OFF (dispose 안 함 — refreshRate + darkness로 시각적 토글) */
+  const setShadowsEnabled = useCallback((enabled: boolean) => {
+    const sg = shadowGeneratorRef.current
+    if (!sg) return
+    const shadowMap = sg.getShadowMap()
+    if (shadowMap) {
+      shadowMap.refreshRate = enabled ? 1 : 0
+    }
+    sg.darkness = enabled ? 0.3 : 1.0
+  }, [])
 
   const fitCameraToScene = useCallback((scene: Scene) => {
     const camera = cameraRef.current
@@ -190,12 +257,23 @@ export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
     camera.lowerRadiusLimit = diagonal * 0.1
     camera.upperRadiusLimit = diagonal * 5
 
+    // vehicle bounds 저장 (updateSunPosition에서 재사용)
+    vehicleBoundsRef.current = { center, diagonal }
+
+    // 초기 sun.position 배치 + shadow frustum 크기
+    const sun = sunRef.current
+    if (sun) {
+      updateSunPosition()
+      sun.shadowMinZ = 0.1
+      sun.shadowMaxZ = diagonal * 5
+    }
+
     logger.info('[카메라 fit]', {
       center: center.toString(),
       diagonal: diagonal.toFixed(1),
       radius: camera.radius.toFixed(1),
     })
-  }, [])
+  }, [updateSunPosition])
 
   const createGround = useCallback((minY: number) => {
     const scene = sceneRef.current
@@ -209,6 +287,7 @@ export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
     groundMat.roughness = 0.2
     ground.material = groundMat
     ground.position.y = minY - 0.01 // z-fighting 방지
+    ground.receiveShadows = true
 
     // dispose 시 일괄 해제
     ownedResourcesRef.current.push(ground, groundMat)
@@ -216,5 +295,9 @@ export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
     logger.debug(`[바닥] y=${ground.position.y.toFixed(3)}`)
   }, [])
 
-  return { sceneRef, cameraRef, sunRef, createScene, fitCameraToScene, createGround }
+  return {
+    sceneRef, cameraRef, sunRef, shadowGeneratorRef,
+    createScene, fitCameraToScene, createGround,
+    registerShadowCasters, setShadowsEnabled, updateSunPosition,
+  }
 }
