@@ -8,7 +8,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     proxy: {
-      '/vehicles': {
+      '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true,
         followRedirects: true, // Phase 1 307 리다이렉트 대응

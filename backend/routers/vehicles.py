@@ -18,7 +18,7 @@ from storage.local import LocalStorage
 
 logger = logging.getLogger("vehicle_viewer")
 
-router = APIRouter(prefix="/vehicles", tags=["vehicles"])
+router = APIRouter(prefix="/api/vehicles", tags=["vehicles"])
 
 # 스토리지 인스턴스
 _storage = LocalStorage(MODELS_DIR)

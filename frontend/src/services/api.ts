@@ -54,7 +54,7 @@ async function fetchWithRetry(
 export async function fetchVehicles(
   options?: { signal?: AbortSignal },
 ): Promise<VehicleListItem[]> {
-  const response = await fetchWithRetry('/vehicles', { signal: options?.signal })
+  const response = await fetchWithRetry('/api/vehicles', { signal: options?.signal })
   if (!response.ok) {
     throw new Error(`차량 목록 조회 실패: ${response.status}`)
   }
@@ -67,7 +67,7 @@ export async function fetchVehicleMetadata(
   vehicleId: string,
   options?: { signal?: AbortSignal },
 ): Promise<VehicleMetadata> {
-  const response = await fetchWithRetry(`/vehicles/${vehicleId}`, {
+  const response = await fetchWithRetry(`/api/vehicles/${vehicleId}`, {
     signal: options?.signal,
   })
   if (!response.ok) {
@@ -83,5 +83,5 @@ export function getGlbUrl(
   fileHash: string,
 ): string {
   const hashParam = fileHash ? `?v=${fileHash.slice(0, 8)}` : ''
-  return `/vehicles/${vehicleId}/${zone}${hashParam}`
+  return `/api/vehicles/${vehicleId}/${zone}${hashParam}`
 }
