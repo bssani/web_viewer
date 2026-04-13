@@ -7,7 +7,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useEngine } from '../hooks/useEngine'
+import { useEngine, resetEngine } from '../hooks/useEngine'
 import { useScene } from '../hooks/useScene'
 import { useVehicleLoader } from '../hooks/useVehicleLoader'
 import { useLightingControl } from '../hooks/useLightingControl'
@@ -15,6 +15,7 @@ import { LoadingBar } from './LoadingBar'
 import { ErrorMessage } from './ErrorMessage'
 import { DevPanel } from './DevPanel'
 import { LightingPanel } from './LightingPanel'
+import { logger } from '../utils/logger'
 
 interface ViewerProps {
   selectedVehicleId: string | null
@@ -32,14 +33,15 @@ export function Viewer({ selectedVehicleId, isDevMode }: ViewerProps) {
   const loader = useVehicleLoader(engine ?? null, sceneManager)
   const lighting = useLightingControl(sceneManager)
 
-  // 차량 선택 변경 시 로드
+  // 차량 선택 변경 시 로드 (engine 준비 후에만 prevRef 갱신)
   const prevVehicleRef = useRef<string | null>(null)
   useEffect(() => {
+    if (!engine) return
     if (selectedVehicleId && selectedVehicleId !== prevVehicleRef.current) {
       prevVehicleRef.current = selectedVehicleId
       loader.loadVehicle(selectedVehicleId)
     }
-  }, [selectedVehicleId, loader.loadVehicle])
+  }, [selectedVehicleId, loader.loadVehicle, engine])
 
   // 차량 전환 후 조명 재동기화
   useEffect(() => {
@@ -48,6 +50,15 @@ export function Viewer({ selectedVehicleId, isDevMode }: ViewerProps) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loader.currentVehicleId])
+
+  // unmount 시 engine + scene 정리 (페이지 이탈 대비)
+  // 라우팅으로 canvas DOM이 제거되므로 engine 싱글톤도 리셋 필요
+  useEffect(() => {
+    return () => {
+      logger.info('[scene disposed]')
+      resetEngine()
+    }
+  }, [])
 
   // ResizeObserver + rAF 디바운싱
   useEffect(() => {
