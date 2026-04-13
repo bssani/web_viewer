@@ -11,7 +11,7 @@ import logging
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
 
 from config.local import MODELS_DIR
 from storage.local import LocalStorage
@@ -93,6 +93,22 @@ def get_vehicle(vehicle_id: str):
         )
 
     return metadata
+
+
+@router.get("/{vehicle_id}/thumbnail")
+def get_vehicle_thumbnail(vehicle_id: str):
+    """차량 썸네일 이미지를 반환한다.
+
+    models_dir/{vehicle_id}/thumbnail.jpg 파일이 있으면 반환,
+    없으면 404 (프론트에서 placeholder 처리).
+    """
+    vehicle_dir = MODELS_DIR / vehicle_id
+    thumbnail_path = vehicle_dir / "thumbnail.jpg"
+
+    if not thumbnail_path.is_file():
+        raise HTTPException(status_code=404, detail="썸네일 없음")
+
+    return FileResponse(str(thumbnail_path), media_type="image/jpeg")
 
 
 @router.get("/{vehicle_id}/{zone}")
