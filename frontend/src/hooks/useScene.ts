@@ -51,6 +51,8 @@ export interface SceneManager {
   updateSunPosition: () => void
   /** bloom ON/OFF (3b-5) */
   setBloomEnabled: (enabled: boolean) => void
+  /** IBL 환경 텍스처 ON/OFF (3c-5) */
+  setIBLEnabled: (enabled: boolean) => void
 }
 
 export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
@@ -62,6 +64,7 @@ export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
   const ownedResourcesRef = useRef<IDisposable[]>([])
   const skyboxRef = useRef<Mesh | null>(null)
   const pipelineRef = useRef<DefaultRenderingPipeline | null>(null)
+  const envTextureRef = useRef<CubeTexture | null>(null)
 
   const createScene = useCallback(() => {
     // 기존 씬 dispose (메모리 계측)
@@ -97,6 +100,7 @@ export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
       shadowGeneratorRef.current = null
       vehicleBoundsRef.current = null
       pipelineRef.current = null
+      envTextureRef.current = null
 
       // 엔진 텍스처 캐시 강제 정리 (scene.dispose가 남기는 잔여 텍스처 제거)
       const cache = engine?.getLoadedTexturesCache()
@@ -160,6 +164,7 @@ export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
     )
     scene.environmentTexture = envTexture
     scene.environmentIntensity = 1.0
+    envTextureRef.current = envTexture
 
     // 스카이박스 (환경 배경)
     const skybox = scene.createDefaultSkybox(envTexture, true, 100)
@@ -242,6 +247,17 @@ export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
     pipeline.bloomEnabled = enabled
   }, [])
 
+  /** IBL 환경 텍스처 ON/OFF (재생성 금지 — 참조 보관 후 null 스왑) */
+  const setIBLEnabled = useCallback((enabled: boolean) => {
+    const scene = sceneRef.current
+    if (!scene) return
+    if (enabled) {
+      scene.environmentTexture = envTextureRef.current
+    } else {
+      scene.environmentTexture = null
+    }
+  }, [])
+
   const fitCameraToScene = useCallback((scene: Scene) => {
     const camera = cameraRef.current
     if (!camera) return
@@ -318,6 +334,6 @@ export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
     sceneRef, cameraRef, sunRef, shadowGeneratorRef,
     createScene, fitCameraToScene, createGround,
     registerShadowCasters, setShadowsEnabled, updateSunPosition,
-    setBloomEnabled,
+    setBloomEnabled, setIBLEnabled,
   }
 }

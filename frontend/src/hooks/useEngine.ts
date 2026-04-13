@@ -81,6 +81,18 @@ async function initializeEngine(
   return _initPromise
 }
 
+/** 페이지 이탈 시 engine 싱글톤 정리 (canvas DOM 제거 대비) */
+export function resetEngine() {
+  if (_engineInstance) {
+    _engineInstance.stopRenderLoop()
+    _engineInstance.dispose()
+    _engineInstance = null
+    _initPromise = null
+    _rendererType = null
+    logger.info('[engine disposed — 페이지 이탈]')
+  }
+}
+
 export function useEngine(canvas: HTMLCanvasElement | null) {
   const [state, setState] = useState<EngineState | null>(null)
   const [error, setError] = useState<Error | null>(null)

@@ -2,30 +2,21 @@
 
 /**
  * 루트 앱 컴포넌트.
- * 좌측 Sidebar(차량 선택) + 우측 Viewer(3D 렌더링) 레이아웃.
- * ?dev=1 쿼리 파라미터로 개발자 모드 활성화.
+ * React Router 기반 3페이지 라우팅: 로그인 → 차량 선택 → 뷰어.
  */
 
-import { useState } from 'react'
-import { Sidebar } from './components/Sidebar'
-import { Viewer } from './components/Viewer'
-
-const isDevMode = new URLSearchParams(window.location.search).has('dev')
+import { Routes, Route, Navigate } from 'react-router-dom'
+import LoginPage from './pages/LoginPage'
+import VehicleSelectPage from './pages/VehicleSelectPage'
+import ViewerPage from './pages/ViewerPage'
 
 export default function App() {
-  const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null)
-
   return (
-    <div className="flex h-screen bg-slate-900 text-white overflow-hidden">
-      <Sidebar
-        currentVehicleId={selectedVehicleId}
-        onSelectVehicle={setSelectedVehicleId}
-        isLoading={false}
-      />
-      <Viewer
-        selectedVehicleId={selectedVehicleId}
-        isDevMode={isDevMode}
-      />
-    </div>
+    <Routes>
+      <Route path="/" element={<LoginPage />} />
+      <Route path="/vehicles" element={<VehicleSelectPage />} />
+      <Route path="/vehicles/:id/viewer" element={<ViewerPage />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   )
 }

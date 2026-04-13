@@ -81,7 +81,7 @@ async def cache_control_middleware(request: Request, call_next) -> Response:
     path = request.url.path
     if path.startswith("/static/") and path.endswith(".glb"):
         response.headers["Cache-Control"] = "public, max-age=3600"
-    elif path.startswith("/vehicles"):
+    elif path.startswith("/api/vehicles"):
         response.headers["Cache-Control"] = "no-cache"
 
     return response
