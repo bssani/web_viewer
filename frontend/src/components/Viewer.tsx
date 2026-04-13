@@ -51,6 +51,13 @@ export function Viewer({ selectedVehicleId, isDevMode }: ViewerProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loader.currentVehicleId])
 
+  // dev 모드: scene을 콘솔에서 접근 가능하도록 노출
+  useEffect(() => {
+    if (!isDevMode) return
+    ;(window as any).__SCENE__ = sceneManager.sceneRef.current
+    return () => { (window as any).__SCENE__ = null }
+  }, [isDevMode, sceneManager.sceneRef.current])
+
   // unmount 시 engine + scene 정리 (페이지 이탈 대비)
   // 라우팅으로 canvas DOM이 제거되므로 engine 싱글톤도 리셋 필요
   useEffect(() => {
