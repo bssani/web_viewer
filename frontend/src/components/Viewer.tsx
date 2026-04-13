@@ -133,6 +133,8 @@ export function Viewer({ selectedVehicleId, isDevMode }: ViewerProps) {
         onShadowsToggle={lighting.setShadowsEnabled}
         bloomEnabled={lighting.bloomEnabled}
         onBloomToggle={lighting.setBloomEnabled}
+        iblEnabled={lighting.iblEnabled}
+        onIBLToggle={lighting.setIBLEnabled}
       />
 
       {/* 개발자 모드 패널 */}

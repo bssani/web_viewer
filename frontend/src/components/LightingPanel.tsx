@@ -23,6 +23,8 @@ export interface LightingPanelProps {
   onShadowsToggle: (enabled: boolean) => void
   bloomEnabled: boolean
   onBloomToggle: (enabled: boolean) => void
+  iblEnabled: boolean
+  onIBLToggle: (enabled: boolean) => void
 }
 
 export function LightingPanel({
@@ -30,6 +32,7 @@ export function LightingPanel({
   onAzimuthChange, onElevationChange, onIntensityChange, onPresetSelect,
   shadowsEnabled, onShadowsToggle,
   bloomEnabled, onBloomToggle,
+  iblEnabled, onIBLToggle,
 }: LightingPanelProps) {
   return (
     <div className={styles.panel}>
@@ -102,6 +105,19 @@ export function LightingPanel({
             className={styles.checkbox}
           />
           <span>블룸</span>
+        </label>
+      </div>
+
+      {/* IBL 토글 (3c-5) */}
+      <div className={styles.toggleRow}>
+        <label className={styles.toggleLabel}>
+          <input
+            type="checkbox"
+            checked={iblEnabled}
+            onChange={(e) => onIBLToggle(e.target.checked)}
+            className={styles.checkbox}
+          />
+          <span>환경 반사 (IBL)</span>
         </label>
       </div>
     </div>
