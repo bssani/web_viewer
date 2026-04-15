@@ -76,12 +76,8 @@ export async function fetchVehicleMetadata(
   return response.json()
 }
 
-/** 해시 기반 캐시 버스팅 GLB URL 생성 */
-export function getGlbUrl(
-  vehicleId: string,
-  zone: string,
-  fileHash: string,
-): string {
+/** 해시 기반 캐시 버스팅 GLB URL 생성 (단일 GLB, StaticFiles 서빙) */
+export function getGlbUrl(vehicleId: string, fileHash: string): string {
   const hashParam = fileHash ? `?v=${fileHash.slice(0, 8)}` : ''
-  return `/api/vehicles/${vehicleId}/${zone}${hashParam}`
+  return `/static/${vehicleId}/model.glb${hashParam}`
 }

@@ -89,14 +89,11 @@ export function Sidebar({
             } ${isLoading ? 'opacity-50 cursor-wait' : 'cursor-pointer'}`}
           >
             <div className="font-medium text-sm">{v.vehicle_name}</div>
-            <div className="text-xs text-slate-400 mt-0.5">
-              {v.zones.length}개 구역
-            </div>
           </button>
         ))}
       </div>
 
-      {/* Phase 4 확장 영역 (zone 토글, 인터랙션 패널) */}
+      {/* Phase 4 확장 영역 (인터랙션 패널) */}
       <div className="border-t border-slate-700 p-3">
         <p className="text-xs text-slate-500">v0.2 — Phase 2</p>
       </div>

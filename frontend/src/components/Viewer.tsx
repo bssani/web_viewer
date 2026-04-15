@@ -11,10 +11,12 @@ import { useEngine, resetEngine } from '../hooks/useEngine'
 import { useScene } from '../hooks/useScene'
 import { useVehicleLoader } from '../hooks/useVehicleLoader'
 import { useLightingControl } from '../hooks/useLightingControl'
+import { usePartAnimations } from '../hooks/usePartAnimations'
 import { LoadingBar } from './LoadingBar'
 import { ErrorMessage } from './ErrorMessage'
 import { DevPanel } from './DevPanel'
 import { LightingPanel } from './LightingPanel'
+import { AnimationPanel } from './AnimationPanel'
 import { logger } from '../utils/logger'
 
 interface ViewerProps {
@@ -32,6 +34,7 @@ export function Viewer({ selectedVehicleId, isDevMode }: ViewerProps) {
   const sceneManager = useScene(engine ?? null)
   const loader = useVehicleLoader(engine ?? null, sceneManager)
   const lighting = useLightingControl(sceneManager)
+  const anim = usePartAnimations(sceneManager.sceneRef.current, loader.currentVehicleId)
 
   // 차량 선택 변경 시 로드 (engine 준비 후에만 prevRef 갱신)
   const prevVehicleRef = useRef<string | null>(null)
@@ -126,6 +129,9 @@ export function Viewer({ selectedVehicleId, isDevMode }: ViewerProps) {
         />
       )}
 
+      {/* 파츠 애니메이션 패널 */}
+      <AnimationPanel parts={anim.parts} onToggle={anim.togglePart} />
+
       {/* 조명 제어 패널 */}
       <LightingPanel
         azimuth={lighting.state.azimuth}
@@ -149,7 +155,6 @@ export function Viewer({ selectedVehicleId, isDevMode }: ViewerProps) {
           scene={sceneManager.sceneRef.current}
           rendererType={rendererType ?? null}
           vehicleId={loader.currentVehicleId}
-          zone={loader.currentZone}
           metadata={loader.metadata}
         />
       )}

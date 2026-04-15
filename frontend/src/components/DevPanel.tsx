@@ -17,7 +17,6 @@ interface DevPanelProps {
   scene: Scene | null
   rendererType: RendererType | null
   vehicleId: string | null
-  zone: string | null
   metadata: VehicleMetadata | null
 }
 
@@ -36,7 +35,6 @@ export function DevPanel({
   scene,
   rendererType,
   vehicleId,
-  zone,
   metadata,
 }: DevPanelProps) {
   const [metrics, setMetrics] = useState<SceneMetrics | null>(null)
@@ -83,7 +81,7 @@ export function DevPanel({
       `=== Vehicle Viewer Benchmark ===`,
       `Date: ${new Date().toISOString()}`,
       `Renderer: ${rendererType ?? 'unknown'}`,
-      `Vehicle: ${vehicleId ?? 'none'} / ${zone ?? 'none'}`,
+      `Vehicle: ${vehicleId ?? 'none'}`,
       `FPS: ${metrics.fps}`,
       `Meshes: ${metrics.meshes}`,
       `Materials: ${metrics.materials}`,
@@ -91,8 +89,8 @@ export function DevPanel({
       `Cached Textures: ${metrics.cachedTextures}`,
       `Total Vertices: ${metrics.totalVertices.toLocaleString()}`,
       `JS Heap: ${metrics.jsHeap ? `${(metrics.jsHeap / 1048576).toFixed(1)}MB` : 'N/A'}`,
-      metadata?.zones[zone ?? '']
-        ? `Metadata Draw Calls: ${metadata.zones[zone!].draw_calls}`
+      metadata?.model
+        ? `Metadata Draw Calls: ${metadata.model.draw_calls}`
         : '',
     ]
       .filter(Boolean)
@@ -118,10 +116,9 @@ export function DevPanel({
       )}
       <hr className="border-green-900 my-1" />
       <div>차량: {vehicleId ?? 'none'}</div>
-      <div>구역: {zone ?? 'none'}</div>
-      {metadata?.zones[zone ?? ''] && (
+      {metadata?.model && (
         <div className="text-slate-400">
-          meta draw_calls: {metadata.zones[zone!].draw_calls}
+          meta draw_calls: {metadata.model.draw_calls}
         </div>
       )}
       {hasLeak && (

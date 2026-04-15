@@ -87,9 +87,6 @@ export default function VehicleSelectPage() {
                   <h2 className="font-medium text-sm group-hover:text-blue-400 transition-colors">
                     {v.vehicle_name}
                   </h2>
-                  <p className="text-xs text-slate-400 mt-1">
-                    {v.zones.length}개 구역
-                  </p>
                 </div>
               </button>
             ))}

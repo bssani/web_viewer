@@ -2,5 +2,6 @@
   "watch_folder": "C:/UE5_Export",
   "vehicle_id": "vehicle_a",
   "vehicle_name": "Vehicle A",
-  "ue_version": "5.5.2"
+  "ue_version": "5.5.2",
+  "source_filename": "export.glb"
 }

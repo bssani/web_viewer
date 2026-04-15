@@ -55,9 +55,8 @@ export interface VehicleLoaderState {
   progress: number
   error: Error | null
   currentVehicleId: string | null
-  currentZone: string | null
   metadata: VehicleMetadata | null
-  loadVehicle: (vehicleId: string, zone?: string) => Promise<void>
+  loadVehicle: (vehicleId: string) => Promise<void>
   retry: () => void
   clearError: () => void
 }
@@ -70,14 +69,12 @@ export function useVehicleLoader(
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState<Error | null>(null)
   const [currentVehicleId, setCurrentVehicleId] = useState<string | null>(null)
-  const [currentZone, setCurrentZone] = useState<string | null>(null)
   const [metadata, setMetadata] = useState<VehicleMetadata | null>(null)
 
   const abortRef = useRef<AbortController | null>(null)
   const loadGenerationRef = useRef(0)
 
-  // 마지막 요청 파라미터 (재시도용)
-  const lastRequestRef = useRef<{ vehicleId: string; zone: string } | null>(null)
+  const lastRequestRef = useRef<{ vehicleId: string } | null>(null)
 
   // 언마운트 시 진행 중인 요청 취소
   useEffect(() => {
@@ -88,16 +85,15 @@ export function useVehicleLoader(
   }, [])
 
   const loadVehicle = useCallback(
-    async (vehicleId: string, zone: string = 'exterior') => {
+    async (vehicleId: string) => {
       if (!engine) return
 
-      // 이전 로딩 취소
       abortRef.current?.abort()
       abortRef.current = new AbortController()
       const signal = abortRef.current.signal
       const generation = ++loadGenerationRef.current
 
-      lastRequestRef.current = { vehicleId, zone }
+      lastRequestRef.current = { vehicleId }
       setIsLoading(true)
       setProgress(0)
       setError(null)
@@ -105,19 +101,15 @@ export function useVehicleLoader(
       let newScene: ReturnType<typeof sceneManager.createScene> | null = null
 
       try {
-        // 메타데이터 조회 (지수 백오프 재시도 내장)
         const meta = await fetchVehicleMetadata(vehicleId, { signal })
         if (signal.aborted || generation !== loadGenerationRef.current) return
 
-        const zoneInfo = meta.zones[zone]
-        if (!zoneInfo) {
-          throw new Error(
-            `구역 '${zone}'을 찾을 수 없습니다. 사용 가능: ${Object.keys(meta.zones).join(', ')}`,
-          )
+        if (!meta.model) {
+          throw new Error(`차량 '${vehicleId}'에 model 정보가 없습니다`)
         }
 
-        const glbUrl = getGlbUrl(vehicleId, zone, zoneInfo.file_hash)
-        logger.info('[로딩 시작]', vehicleId, zone, glbUrl)
+        const glbUrl = getGlbUrl(vehicleId, meta.model.file_hash)
+        logger.info('[로딩 시작]', vehicleId, glbUrl)
 
         // 기존 씬 dispose + 새 씬 생성
         newScene = sceneManager.createScene()
@@ -172,16 +164,16 @@ export function useVehicleLoader(
         }
 
         setCurrentVehicleId(vehicleId)
-        setCurrentZone(zone)
         setMetadata(meta)
         setIsLoading(false)
         setProgress(100)
 
-        logger.info('[로딩 완료]', vehicleId, zone, {
+        logger.info('[로딩 완료]', vehicleId, {
           meshes: newScene.meshes.length,
           materials: newScene.materials.length,
           textures: newScene.textures.length,
           vertices: newScene.getTotalVertices(),
+          animationGroups: newScene.animationGroups.length,
         })
 
         // 로딩 성공 — newScene 소유권이 sceneRef로 이전됨
@@ -190,7 +182,7 @@ export function useVehicleLoader(
         if ((err as DOMException).name === 'AbortError') return
         if (generation !== loadGenerationRef.current) return
 
-        logger.error('[로딩 실패]', vehicleId, zone, err)
+        logger.error('[로딩 실패]', vehicleId, err)
         setError(err as Error)
         setIsLoading(false)
       } finally {
@@ -211,7 +203,7 @@ export function useVehicleLoader(
 
   const retry = useCallback(() => {
     if (lastRequestRef.current) {
-      loadVehicle(lastRequestRef.current.vehicleId, lastRequestRef.current.zone)
+      loadVehicle(lastRequestRef.current.vehicleId)
     }
   }, [loadVehicle])
 
@@ -222,7 +214,6 @@ export function useVehicleLoader(
     progress,
     error,
     currentVehicleId,
-    currentZone,
     metadata,
     loadVehicle,
     retry,

@@ -29,9 +29,6 @@ function getErrorMessage(error: unknown): string {
   if (msg.includes('404') || msg.includes('not found')) {
     return '요청한 파일을 찾을 수 없습니다.'
   }
-  if (msg.includes('구역') || msg.includes('zone')) {
-    return rawMessage
-  }
   if (msg.includes('plugin') || msg.includes('glb') || msg.includes('gltf') || msg.includes('parse')) {
     return '3D 모델 파일을 로드할 수 없습니다.'
   }

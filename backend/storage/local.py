@@ -13,7 +13,7 @@ logger = logging.getLogger("vehicle_viewer")
 class LocalStorage(StorageBackend):
     """로컬 파일 시스템 스토리지.
 
-    키 형식: '{vehicle_id}/{filename}' (예: 'vehicle_a/exterior.glb')
+    키 형식: '{vehicle_id}/{filename}' (예: 'vehicle_a/model.glb')
     모든 키는 소문자로 강제 변환된다.
     """
 
@@ -76,3 +76,7 @@ class LocalStorage(StorageBackend):
     def get_local_path(self, key: str) -> Path:
         """StaticFiles 마운트용 로컬 경로 반환."""
         return self._resolve(key)
+
+    def get_model_path(self, vehicle_id: str) -> Path:
+        """차량의 model.glb 경로를 반환한다 (단일 GLB 구조)."""
+        return self._base_dir / vehicle_id.lower() / "model.glb"
