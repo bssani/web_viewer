@@ -19,8 +19,9 @@ from fastapi.responses import FileResponse, Response
 from starlette.staticfiles import StaticFiles
 
 from config.base import setup_logging
-from config.local import ALLOWED_ORIGINS, LOG_FILE, MODELS_DIR
+from config.local import ALLOWED_ORIGINS, ENVIRONMENTS_DIR, LOG_FILE, MODELS_DIR
 from middleware.auth import AuthMiddleware
+from routers.environments import router as environments_router
 from routers.vehicles import router as vehicles_router
 from storage.local import LocalStorage
 
@@ -62,6 +63,16 @@ else:
 
 # 라우터 등록
 app.include_router(vehicles_router)
+app.include_router(environments_router)
+
+# StaticFiles 마운트 — 환경 파일 (먼저 마운트, /static보다 구체적 경로)
+if ENVIRONMENTS_DIR.is_dir():
+    app.mount(
+        "/static/environments",
+        StaticFiles(directory=str(ENVIRONMENTS_DIR)),
+        name="environments",
+    )
+    logger.info("StaticFiles 마운트: /static/environments → %s", ENVIRONMENTS_DIR)
 
 # StaticFiles 마운트 (GLB 파일 직접 서빙)
 if MODELS_DIR.is_dir():

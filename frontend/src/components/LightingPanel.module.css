@@ -80,3 +80,20 @@
   cursor: pointer;
   accent-color: var(--panel-accent);
 }
+
+.select {
+  width: 100%;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--panel-fg);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  margin-top: 4px;
+}
+
+.select:focus {
+  outline: none;
+  border-color: var(--panel-accent);
+}

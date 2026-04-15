@@ -33,7 +33,7 @@ export function Viewer({ selectedVehicleId, isDevMode }: ViewerProps) {
   const { engine, rendererType, error: engineError } = useEngine(canvas)
   const sceneManager = useScene(engine ?? null)
   const loader = useVehicleLoader(engine ?? null, sceneManager)
-  const lighting = useLightingControl(sceneManager)
+  const lighting = useLightingControl(sceneManager, loader.currentVehicleId)
   const anim = usePartAnimations(sceneManager.sceneRef.current, loader.currentVehicleId)
 
   // 차량 선택 변경 시 로드 (engine 준비 후에만 prevRef 갱신)
@@ -144,8 +144,9 @@ export function Viewer({ selectedVehicleId, isDevMode }: ViewerProps) {
         onPresetSelect={lighting.applyPreset}
         shadowsEnabled={lighting.shadowsEnabled}
         onShadowsToggle={lighting.setShadowsEnabled}
-        iblEnabled={lighting.iblEnabled}
-        onIBLToggle={lighting.setIBLEnabled}
+        environments={lighting.environments}
+        currentEnvId={lighting.currentEnvId}
+        onChangeEnvironment={lighting.changeEnvironment}
       />
 
       {/* 개발자 모드 패널 */}

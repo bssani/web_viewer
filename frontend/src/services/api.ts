@@ -76,6 +76,24 @@ export async function fetchVehicleMetadata(
   return response.json()
 }
 
+/** IBL 환경 목록 */
+export interface EnvironmentItem {
+  id: string
+  name: string
+  url: string
+}
+
+/** IBL 환경 목록 조회 */
+export async function fetchEnvironments(
+  options?: { signal?: AbortSignal },
+): Promise<EnvironmentItem[]> {
+  const response = await fetchWithRetry('/api/environments', { signal: options?.signal })
+  if (!response.ok) {
+    throw new Error(`환경 목록 조회 실패: ${response.status}`)
+  }
+  return response.json()
+}
+
 /** 해시 기반 캐시 버스팅 GLB URL 생성 (단일 GLB, StaticFiles 서빙) */
 export function getGlbUrl(vehicleId: string, fileHash: string): string {
   const hashParam = fileHash ? `?v=${fileHash.slice(0, 8)}` : ''

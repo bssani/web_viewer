@@ -8,6 +8,7 @@
 
 import type { LightingPreset, PresetId } from '../hooks/useLightingControl'
 import { LIGHTING_PRESETS } from '../hooks/useLightingControl'
+import type { EnvironmentItem } from '../services/api'
 import styles from './LightingPanel.module.css'
 
 export interface LightingPanelProps {
@@ -21,15 +22,16 @@ export interface LightingPanelProps {
   onPresetSelect: (preset: LightingPreset) => void
   shadowsEnabled: boolean
   onShadowsToggle: (enabled: boolean) => void
-  iblEnabled: boolean
-  onIBLToggle: (enabled: boolean) => void
+  environments: EnvironmentItem[]
+  currentEnvId: string | null
+  onChangeEnvironment: (envId: string | null) => void
 }
 
 export function LightingPanel({
   azimuth, elevation, intensity, activePreset,
   onAzimuthChange, onElevationChange, onIntensityChange, onPresetSelect,
   shadowsEnabled, onShadowsToggle,
-  iblEnabled, onIBLToggle,
+  environments, currentEnvId, onChangeEnvironment,
 }: LightingPanelProps) {
   return (
     <div className={styles.panel}>
@@ -92,17 +94,21 @@ export function LightingPanel({
         </label>
       </div>
 
-      {/* IBL 토글 (3c-5) */}
-      <div className={styles.toggleRow}>
-        <label className={styles.toggleLabel}>
-          <input
-            type="checkbox"
-            checked={iblEnabled}
-            onChange={(e) => onIBLToggle(e.target.checked)}
-            className={styles.checkbox}
-          />
-          <span>환경 반사 (IBL)</span>
+      {/* 환경 드롭다운 (IBL 토글 대체) */}
+      <div className={styles.row}>
+        <label className={styles.label}>
+          <span>환경</span>
         </label>
+        <select
+          value={currentEnvId ?? ''}
+          onChange={(e) => onChangeEnvironment(e.target.value || null)}
+          className={styles.select}
+        >
+          <option value="">없음</option>
+          {environments.map((env) => (
+            <option key={env.id} value={env.id}>{env.name}</option>
+          ))}
+        </select>
       </div>
     </div>
   )

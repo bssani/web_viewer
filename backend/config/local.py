@@ -13,6 +13,11 @@ _models_dir_raw = os.environ.get("MODELS_DIR", "./models_dir")
 _models_dir_path = Path(_models_dir_raw)
 MODELS_DIR: Path = _models_dir_path if _models_dir_path.is_absolute() else _backend_dir / _models_dir_path
 
+# IBL 환경 파일 저장 경로
+_env_dir_raw = os.environ.get("ENVIRONMENTS_DIR", "./environments")
+_env_dir_path = Path(_env_dir_raw)
+ENVIRONMENTS_DIR: Path = _env_dir_path if _env_dir_path.is_absolute() else _backend_dir / _env_dir_path
+
 # CORS 허용 출처 (쉼표 구분)
 ALLOWED_ORIGINS: list[str] = [
     o.strip()

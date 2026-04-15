@@ -15,6 +15,7 @@ import { Vector3 } from '@babylonjs/core/Maths/math.vector'
 import { CubeTexture } from '@babylonjs/core/Materials/Textures/cubeTexture'
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder'
 import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial'
+import { Material } from '@babylonjs/core/Materials/material'
 import { Color3 } from '@babylonjs/core/Maths/math.color'
 import { ShadowGenerator } from '@babylonjs/core/Lights/Shadows/shadowGenerator'
 import '@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent'
@@ -49,8 +50,8 @@ export interface SceneManager {
   setShadowsEnabled: (enabled: boolean) => void
   /** sun.position을 차량 bounding box 기준 유동 배치 (3b-4) */
   updateSunPosition: () => void
-  /** IBL 환경 텍스처 ON/OFF (3c-5) */
-  setIBLEnabled: (enabled: boolean) => void
+  /** IBL 환경 교체 — null이면 환경 제거 (3c-5 IBL 토글 대체) */
+  changeEnvironment: (envUrl: string | null) => Promise<void>
 }
 
 export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
@@ -155,17 +156,9 @@ export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
     // GPU 텍스처(shadow map) dispose 보장
     ownedResourcesRef.current.push(shadowGenerator)
 
-    // IBL 환경 텍스처 (PBR 반사용)
-    const envTexture = CubeTexture.CreateFromPrefilteredData(
-      `${import.meta.env.BASE_URL}env/studio.env`,
-      scene,
-    )
-    scene.environmentTexture = envTexture
+    // IBL 환경은 자동 로드하지 않음 — useLightingControl이 차량 로드 완료 후 적용
+    // (자동 로드 시 PBR 머티리얼 컴파일 중 envTexture swap → WebGPU bind group 실패)
     scene.environmentIntensity = 1.0
-    envTextureRef.current = envTexture
-
-    // 스카이박스 (환경 배경)
-    const skybox = scene.createDefaultSkybox(envTexture, true, 100)
 
     // 후처리 파이프라인 (ACES 톤매핑 + FXAA)
     const pipeline = new DefaultRenderingPipeline('default', true, scene, [camera])
@@ -181,9 +174,8 @@ export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
 
     pipelineRef.current = pipeline
 
-    // 수동 추적 리소스 등록 (dispose 시 명시적 해제)
-    ownedResourcesRef.current.push(envTexture, pipeline)
-    skyboxRef.current = skybox ?? null
+    // 수동 추적 리소스 등록 (pipeline만 — envTexture/skybox는 changeEnvironment가 관리)
+    ownedResourcesRef.current.push(pipeline)
 
     logger.debug('[후처리] ACES 톤매핑 + FXAA 활성화')
     logger.debug('[조명] DirectionalLight intensity=2.0, ambient=0.4')
@@ -231,14 +223,55 @@ export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
     sg.darkness = enabled ? 0.3 : 1.0
   }, [])
 
-  /** IBL 환경 텍스처 ON/OFF (재생성 금지 — 참조 보관 후 null 스왑) */
-  const setIBLEnabled = useCallback((enabled: boolean) => {
+  /**
+   * IBL 환경 교체 — WebGPU bind group 안전 순서.
+   * 1) 새 텍스처 먼저 로드 → 2) scene 적용 + PBR 머티리얼 markAsDirty
+   *   → 3) 이전 텍스처/스카이박스 dispose.
+   * 역순으로 하면 "Destroyed texture used in a submit" 에러 발생.
+   */
+  const changeEnvironment = useCallback(async (envUrl: string | null) => {
     const scene = sceneRef.current
     if (!scene) return
-    if (enabled) {
-      scene.environmentTexture = envTextureRef.current
-    } else {
-      scene.environmentTexture = null
+
+    const prev = envTextureRef.current
+    const prevSkybox = skyboxRef.current
+
+    // 1. 새 텍스처 먼저 로드 (있는 경우)
+    let newTex: CubeTexture | null = null
+    if (envUrl) {
+      newTex = CubeTexture.CreateFromPrefilteredData(envUrl, scene)
+      await new Promise<void>((resolve) => {
+        newTex!.onLoadObservable.addOnce(() => resolve())
+      })
+    }
+
+    // 2. scene 적용 (null 또는 새 텍스처)
+    scene.environmentTexture = newTex
+
+    // 3. PBR 머티리얼 bind group 무효화 — 다음 프레임에 새 reflection sampler로 재바인드
+    for (const mat of scene.materials) {
+      const cls = mat.getClassName()
+      if (cls === 'PBRMaterial' || cls === 'PBRMetallicRoughnessMaterial') {
+        mat.markAsDirty(Material.TextureDirtyFlag)
+      }
+    }
+
+    // 4. 이제 안전하게 이전 리소스 해제
+    if (prevSkybox) {
+      prevSkybox.dispose(false, true)
+      skyboxRef.current = null
+    }
+    if (prev) {
+      ownedResourcesRef.current = ownedResourcesRef.current.filter((r) => r !== prev)
+      prev.dispose()
+    }
+
+    // 5. 새 envTexture 추적 + 스카이박스 재생성
+    envTextureRef.current = newTex
+    if (newTex) {
+      ownedResourcesRef.current.push(newTex)
+      const sky = scene.createDefaultSkybox(newTex, true, 100)
+      skyboxRef.current = sky ?? null
     }
   }, [])
 
@@ -318,6 +351,6 @@ export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
     sceneRef, cameraRef, sunRef, shadowGeneratorRef,
     createScene, fitCameraToScene, createGround,
     registerShadowCasters, setShadowsEnabled, updateSunPosition,
-    setIBLEnabled,
+    changeEnvironment,
   }
 }

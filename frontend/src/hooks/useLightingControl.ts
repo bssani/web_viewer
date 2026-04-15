@@ -6,9 +6,14 @@
  * 차량 전환 시 resync로 조명 상태 유지.
  */
 
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Vector3 } from '@babylonjs/core/Maths/math.vector'
 import type { SceneManager } from './useScene'
+import { fetchEnvironments, type EnvironmentItem } from '../services/api'
+import { logger } from '../utils/logger'
+import { loadEnvironmentChoice, saveEnvironmentChoice } from '../utils/preferences'
+
+const DEFAULT_ENV_ID = 'studio'
 
 export interface LightingState {
   azimuth: number     // 0-360°
@@ -50,11 +55,52 @@ export function azElToDirection(azimuthDeg: number, elevationDeg: number): Vecto
   return new Vector3(x, y, z).normalize()
 }
 
-export function useLightingControl(sceneManager: SceneManager) {
+export function useLightingControl(sceneManager: SceneManager, currentVehicleId: string | null) {
   const [state, setState] = useState<LightingState>(DEFAULT_LIGHTING)
   const [activePreset, setActivePreset] = useState<PresetId | null>(null)
   const [shadowsEnabled, setShadowsEnabledState] = useState<boolean>(true)
-  const [iblEnabled, setIBLEnabledState] = useState<boolean>(true)
+  const [environments, setEnvironments] = useState<EnvironmentItem[]>([])
+  // 저장된 선택 읽기: undefined(저장 없음) → 'studio' 기본값
+  const [currentEnvId, setCurrentEnvId] = useState<string | null>(() => {
+    const saved = loadEnvironmentChoice()
+    return saved === undefined ? DEFAULT_ENV_ID : saved
+  })
+
+  // 환경 목록만 먼저 fetch + 저장값 검증 (적용은 별도 useEffect에서)
+  useEffect(() => {
+    fetchEnvironments()
+      .then((envs) => {
+        setEnvironments(envs)
+
+        // 저장된 envId가 서버 목록에 없으면 기본값으로 fallback
+        if (currentEnvId !== null && !envs.some((e) => e.id === currentEnvId)) {
+          logger.warn('[환경] 저장된 선택 서버에 없음 → studio fallback:', currentEnvId)
+          setCurrentEnvId(DEFAULT_ENV_ID)
+          saveEnvironmentChoice(DEFAULT_ENV_ID)
+        }
+      })
+      .catch((err) => logger.error('[환경 목록 실패]', err))
+    // 최초 마운트 1회만
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // 차량 로드 완료 + 환경 목록 준비 완료 시점에 환경 적용.
+  // PBR 머티리얼이 환경 없이 1회 컴파일된 후 환경을 추가 → WebGPU bind group 충돌 회피.
+  // deps에서 currentEnvId 제외 — 사용자 토글은 changeEnvironment 콜백이 직접 처리.
+  useEffect(() => {
+    if (!currentVehicleId) return
+    if (environments.length === 0) return
+
+    requestAnimationFrame(() => {
+      if (currentEnvId === null) {
+        void sceneManager.changeEnvironment(null)
+        return
+      }
+      const env = environments.find((e) => e.id === currentEnvId)
+      if (env) void sceneManager.changeEnvironment(env.url)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentVehicleId, environments])
 
   const setAzimuth = useCallback((azimuth: number) => {
     const sun = sceneManager.sunRef.current
@@ -108,12 +154,21 @@ export function useLightingControl(sceneManager: SceneManager) {
     setShadowsEnabledState(enabled)
   }, [sceneManager])
 
-  const setIBLEnabled = useCallback((enabled: boolean) => {
-    sceneManager.setIBLEnabled(enabled)
-    setIBLEnabledState(enabled)
-  }, [sceneManager])
+  const changeEnvironment = useCallback(async (envId: string | null) => {
+    if (envId === null) {
+      await sceneManager.changeEnvironment(null)
+      setCurrentEnvId(null)
+      saveEnvironmentChoice(null)
+      return
+    }
+    const env = environments.find((e) => e.id === envId)
+    if (!env) return
+    await sceneManager.changeEnvironment(env.url)
+    setCurrentEnvId(envId)
+    saveEnvironmentChoice(envId)
+  }, [environments, sceneManager])
 
-  /** 차량 전환 후 재동기화. Viewer.tsx의 useEffect에서 호출. */
+  /** 차량 전환 후 조명 재동기화 (환경은 별도 useEffect가 처리). */
   const resync = useCallback(() => {
     const sun = sceneManager.sunRef.current
     if (!sun) return
@@ -121,12 +176,11 @@ export function useLightingControl(sceneManager: SceneManager) {
     sun.intensity = state.intensity
     sceneManager.updateSunPosition()
     sceneManager.setShadowsEnabled(shadowsEnabled)
-    sceneManager.setIBLEnabled(iblEnabled)
-  }, [sceneManager, state, shadowsEnabled, iblEnabled])
+  }, [sceneManager, state, shadowsEnabled])
 
   return {
-    state, activePreset, shadowsEnabled, iblEnabled,
+    state, activePreset, shadowsEnabled, environments, currentEnvId,
     setAzimuth, setElevation, setIntensity,
-    setShadowsEnabled, setIBLEnabled, applyPreset, resync,
+    setShadowsEnabled, changeEnvironment, applyPreset, resync,
   }
 }
