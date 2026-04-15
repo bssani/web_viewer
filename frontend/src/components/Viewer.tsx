@@ -7,6 +7,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useEngine, resetEngine } from '../hooks/useEngine'
 import { useScene } from '../hooks/useScene'
 import { useVehicleLoader } from '../hooks/useVehicleLoader'
@@ -15,8 +16,8 @@ import { usePartAnimations } from '../hooks/usePartAnimations'
 import { LoadingBar } from './LoadingBar'
 import { ErrorMessage } from './ErrorMessage'
 import { DevPanel } from './DevPanel'
-import { LightingPanel } from './LightingPanel'
-import { AnimationPanel } from './AnimationPanel'
+import { LeftPanel } from './LeftPanel'
+import { RightPanel } from './RightPanel'
 import { logger } from '../utils/logger'
 
 interface ViewerProps {
@@ -25,6 +26,7 @@ interface ViewerProps {
 }
 
 export function Viewer({ selectedVehicleId, isDevMode }: ViewerProps) {
+  const navigate = useNavigate()
   const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null)
   const canvasRef = useCallback((el: HTMLCanvasElement | null) => {
     setCanvas(el)
@@ -92,48 +94,59 @@ export function Viewer({ selectedVehicleId, isDevMode }: ViewerProps) {
   }, [engine, canvas])
 
   return (
-    <div className="relative flex-1 bg-slate-900 overflow-hidden">
-      <canvas
-        ref={canvasRef}
-        className="w-full h-full block outline-none"
-        touch-action="none"
+    <div className="flex h-full w-full bg-slate-900">
+      {/* 좌측 고정 패널 */}
+      <LeftPanel
+        parts={anim.parts}
+        onTogglePart={anim.togglePart}
+        onBackToSelect={() => navigate('/vehicles')}
       />
 
-      {/* 초기 안내 (차량 미선택) */}
-      {!selectedVehicleId && !loader.isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
-          <p className="text-slate-500 text-sm">
-            좌측에서 차량을 선택하세요
-          </p>
-        </div>
-      )}
-
-      {/* 로딩 오버레이 (캔버스 완전 차단) */}
-      {loader.isLoading && <LoadingBar progress={loader.progress} />}
-
-      {/* 에러 오버레이 */}
-      {loader.error && (
-        <ErrorMessage
-          error={loader.error}
-          onRetry={loader.retry}
-          onDismiss={loader.clearError}
+      {/* 캔버스 영역 — min-w-0 필수 (flex item 기본 min-width: auto가 캔버스를 밀어냄) */}
+      <div className="relative flex-1 min-w-0 overflow-hidden">
+        <canvas
+          ref={canvasRef}
+          className="w-full h-full block outline-none"
+          touch-action="none"
         />
-      )}
 
-      {/* 엔진 초기화 에러 */}
-      {engineError && (
-        <ErrorMessage
-          error={engineError}
-          onRetry={() => window.location.reload()}
-          onDismiss={() => {}}
-        />
-      )}
+        {!selectedVehicleId && !loader.isLoading && (
+          <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
+            <p className="text-slate-500 text-sm">차량을 선택하세요</p>
+          </div>
+        )}
 
-      {/* 파츠 애니메이션 패널 */}
-      <AnimationPanel parts={anim.parts} onToggle={anim.togglePart} />
+        {loader.isLoading && <LoadingBar progress={loader.progress} />}
 
-      {/* 조명 제어 패널 */}
-      <LightingPanel
+        {loader.error && (
+          <ErrorMessage
+            error={loader.error}
+            onRetry={loader.retry}
+            onDismiss={loader.clearError}
+          />
+        )}
+
+        {engineError && (
+          <ErrorMessage
+            error={engineError}
+            onRetry={() => window.location.reload()}
+            onDismiss={() => {}}
+          />
+        )}
+
+        {isDevMode && (
+          <DevPanel
+            engine={engine ?? null}
+            scene={sceneManager.sceneRef.current}
+            rendererType={rendererType ?? null}
+            vehicleId={loader.currentVehicleId}
+            metadata={loader.metadata}
+          />
+        )}
+      </div>
+
+      {/* 우측 고정 패널 (접기/펼치기) */}
+      <RightPanel
         azimuth={lighting.state.azimuth}
         elevation={lighting.state.elevation}
         intensity={lighting.state.intensity}
@@ -148,17 +161,6 @@ export function Viewer({ selectedVehicleId, isDevMode }: ViewerProps) {
         currentEnvId={lighting.currentEnvId}
         onChangeEnvironment={lighting.changeEnvironment}
       />
-
-      {/* 개발자 모드 패널 */}
-      {isDevMode && (
-        <DevPanel
-          engine={engine ?? null}
-          scene={sceneManager.sceneRef.current}
-          rendererType={rendererType ?? null}
-          vehicleId={loader.currentVehicleId}
-          metadata={loader.metadata}
-        />
-      )}
     </div>
   )
 }

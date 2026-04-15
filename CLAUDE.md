@@ -88,8 +88,10 @@ Phase 4 완료 = v1.0 출시. GMTCK 내 여러 팀에 정식 배포.
 - **기능 토글 시 객체 재생성 금지** — ShadowGenerator, DefaultRenderingPipeline 등을 OFF 시 dispose하고 ON 시 재생성하면 셰이더 재컴파일 + Effect 객체 누적 + GPU RTT 누수. `sg.refreshRate=0` + `sg.darkness=1.0`, `pipeline.bloomEnabled=false` 같은 불린 토글만 사용.
 - **슬라이더/onChange/반복 콜백 내 logger 호출 금지** — 초당 60+ 호출 경로는 logger retention 누수 직격. Phase 3b-2 슬라이더, 3b-4 updateSunPosition 경로에 적용.
 - **Bloom 재도입 금지** — Phase 4에서 완전 제거 확정. DefaultRenderingPipeline `bloomEnabled`/`bloomWeight`/`bloomThreshold`/`bloomKernel`/`bloomScale` 관련 코드 일체 금지.
-- **animationGroup 이름 충돌 방지** — UE5 Level Sequence는 파츠당 1개씩 분리. 네이밍: `{PartName}_{index}` (예: `Hood_0`, `Door_LF_1`). 1개 Level Sequence에 여러 파츠 포함 금지.
+- **animationGroup 이름 충돌 방지** — UE5 Level Sequence는 파츠당 1개씩 분리. 권장 네이밍: `{PartName}_{index}` (예: `Hood_0`, `Door_LF_1`). `LS_` 접두사 허용: `LS_{PartName}_{index}` (예: `LS_Hood_0`) — UI에서 자동으로 `LS_` 제거 후 표시. 1개 Level Sequence에 여러 파츠 포함 금지.
 - **IBL 환경 ON/OFF 토글 시 CubeTexture 재생성 금지** — `envTextureRef` null 스왑만 허용 (`scene.environmentTexture = null ↔ envTextureRef.current`). 단, 환경 파일 교체(다른 `.env` 로드)는 이전 CubeTexture dispose 후 새로 생성 허용.
+- **패널 토글 시 CSS transition 사용 금지** — 캔버스 부모 flex 폭이 transition으로 매 프레임 변하면 ResizeObserver가 rAF 디바운싱에도 `engine.resize()`를 60Hz로 호출. WebGPU 렌더 끊김 + 누수 가속. 즉시 snap 변경만 허용 (ResizeObserver 1회 발화).
+- **localStorage 불리언 저장 시 문자열 비교 필수** — `if (localStorage.getItem(key))` 형태 금지. `"false"` 문자열도 truthy로 판정되는 버그 발생. `utils/preferences.ts`의 `saveBooleanPref` / `loadBooleanPref` 헬퍼 사용 (`v === 'true'` 명시 비교).
 
 ## 코드 작성 규칙
 
@@ -411,8 +413,11 @@ vehicle-web-viewer/
 - [x] **Phase 3a 완료** (2026-04-12): IBL + PBR + 반사 바닥 + ToneMapping + FXAA ✅
 - [x] **Phase 3b 완료** (2026-04-12): 태양광 컨트롤 + 프리셋 5개 + 실시간 그림자 + Bloom ✅
 - [x] **Phase 3c 완료** (2026-04-14): React Router 3페이지 라우팅 + 로그인/차량선택 페이지 + IBL 토글 ✅
-- [ ] **Phase 4: 인터랙션 + v1.0 출시**
-  - [ ] 메모리 누수 본진 해결 (logger retention 1순위)
+- [x] **Phase 4 완료** (2026-04-15): 단일 GLB 구조 + 파츠 애니메이션 + IBL 드롭다운 + 좌우 2패널 UI ✅ (메모리 누수는 4-7로 이연)
+- [ ] **Phase 4-7: 메모리 누수 본진 (engine 영속화 재시도)**
+  - [ ] SPA 라우팅 heap 누수 해결 (왕복 10회 후 1.1GB)
+  - [ ] logger retention 처리 (concatenated string +147k)
+  - [ ] WebGPU 캐시 누적 처리 (BindGroupCacheNode +44k, GPUBindGroup +11k)
   - [ ] 기준 기기(Intel Iris Xe) 통합 측정
 - [ ] Phase 5: WebXR VR 연동 (선택적)
 - [ ] Phase 6: 인증(SSO) + Cloud 이전 검토
@@ -653,6 +658,32 @@ vehicle-web-viewer/
 ### Phase 3b-5 (2026-04-12)
 - 큰 사고 없이 통과. 3b-4 학습(TDZ, side-effect import) 사전 점검으로 회피.
 - Snapshot B 212MB로 3b-4(278MB)보다 낮게 측정됨 — 측정 변동성(±30MB) 재확인.
+
+### Phase 4 완료 (2026-04-15)
+
+**개발 환경:** Ryzen 9 7950X / RTX 3060 / Win11 / Chrome WebGPU
+
+**기능 추가:**
+- 4-1: CLAUDE.md 규칙 + metadata.json 스키마 단일 GLB 전환
+- 4-2: Bloom 완전 제거
+- 4-3: zone → 단일 GLB 구조 (백엔드 + 프론트엔드)
+- 4-4: 파츠 애니메이션 (animationGroup 자동 감지 + 토글)
+- 4-5: IBL 환경 드롭다운 + localStorage 영속화 + WebGPU bind group 안전 교체
+- 4-6: 좌우 2패널 UI + 우측 패널 접기/펼치기 + `LS_` 접두사 처리
+
+**커밋 히스토리:**
+- 1a0b5c5 Phase 4-1: CLAUDE.md 규칙 업데이트 + Bloom 완전 제거
+- 635271c Phase 4-3/4-4: 단일 GLB 구조 전환 + 파츠 애니메이션
+- 3d17c53 Phase 4-5: IBL 환경 드롭다운 + 영속화 + WebGPU 안전 교체
+- (4-6 커밋 예정)
+
+**알려진 미해결 이슈 (Phase 4-7 이연):**
+- SPA 라우팅 heap 누수 (왕복 10회 후 1.1GB 측정)
+- logger retention (concatenated string +147k)
+- WebGPU 캐시 (WebGPUBindGroupCacheNode +44k)
+- GPU 리소스 누적 (GPUBindGroup +11k, GPUTextureView +4k, GPUBuffer +4k)
+
+**기준 기기 (Intel Iris Xe):** v1.0 출시 전 통합 테스트로 이연 (기존 방침 유지)
 
 ## 규칙 변경 이력
 - 2026-04-10: 저작권 `Philip Choi`로 변경

@@ -33,3 +33,26 @@ export function loadEnvironmentChoice(): string | null | undefined {
     return undefined
   }
 }
+
+/** 불리언 설정 저장 — localStorage는 문자열만 저장하므로 'true'/'false' 명시. */
+export function saveBooleanPref(key: string, value: boolean): void {
+  try {
+    localStorage.setItem(key, value ? 'true' : 'false')
+  } catch {
+    // 시크릿 모드 등 접근 실패 — 무시
+  }
+}
+
+/**
+ * 불리언 설정 조회 — 명시적 문자열 비교.
+ * 주의: `if (localStorage.getItem(key))` 형태 금지 — "false" 문자열도 truthy로 판정되는 버그.
+ */
+export function loadBooleanPref(key: string, fallback: boolean): boolean {
+  try {
+    const v = localStorage.getItem(key)
+    if (v === null) return fallback
+    return v === 'true'
+  } catch {
+    return fallback
+  }
+}

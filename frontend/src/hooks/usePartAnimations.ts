@@ -16,6 +16,7 @@ export interface PartAnimationState {
 
 function parseDisplayName(raw: string): string {
   return raw
+    .replace(/^LS_/i, '')                // UE5 Level Sequence 접두사 제거
     .replace(/_\d+$/, '')
     .replace(/_/g, ' ')
     .replace(/([a-z])([A-Z])/g, '$1 $2')
