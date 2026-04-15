@@ -49,8 +49,6 @@ export interface SceneManager {
   setShadowsEnabled: (enabled: boolean) => void
   /** sun.position을 차량 bounding box 기준 유동 배치 (3b-4) */
   updateSunPosition: () => void
-  /** bloom ON/OFF (3b-5) */
-  setBloomEnabled: (enabled: boolean) => void
   /** IBL 환경 텍스처 ON/OFF (3c-5) */
   setIBLEnabled: (enabled: boolean) => void
 }
@@ -176,13 +174,6 @@ export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
     pipeline.imageProcessing.toneMappingType = ImageProcessingConfiguration.TONEMAPPING_ACES
     pipeline.fxaaEnabled = true
 
-    // Bloom (3b-5) — 차량 평가용 절제된 파라미터
-    pipeline.bloomThreshold = 0.8
-    pipeline.bloomWeight = 0.3
-    pipeline.bloomKernel = 64
-    pipeline.bloomScale = 0.5
-    pipeline.bloomEnabled = true
-
     pipeline.depthOfFieldEnabled = false
     pipeline.chromaticAberrationEnabled = false
     pipeline.grainEnabled = false
@@ -238,13 +229,6 @@ export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
       shadowMap.refreshRate = enabled ? 1 : 0
     }
     sg.darkness = enabled ? 0.3 : 1.0
-  }, [])
-
-  /** bloom ON/OFF (bloomEnabled만 변경, 파라미터 고정 — RTT 재생성 방지) */
-  const setBloomEnabled = useCallback((enabled: boolean) => {
-    const pipeline = pipelineRef.current
-    if (!pipeline) return
-    pipeline.bloomEnabled = enabled
   }, [])
 
   /** IBL 환경 텍스처 ON/OFF (재생성 금지 — 참조 보관 후 null 스왑) */
@@ -334,6 +318,6 @@ export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
     sceneRef, cameraRef, sunRef, shadowGeneratorRef,
     createScene, fitCameraToScene, createGround,
     registerShadowCasters, setShadowsEnabled, updateSunPosition,
-    setBloomEnabled, setIBLEnabled,
+    setIBLEnabled,
   }
 }

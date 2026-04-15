@@ -21,8 +21,6 @@ export interface LightingPanelProps {
   onPresetSelect: (preset: LightingPreset) => void
   shadowsEnabled: boolean
   onShadowsToggle: (enabled: boolean) => void
-  bloomEnabled: boolean
-  onBloomToggle: (enabled: boolean) => void
   iblEnabled: boolean
   onIBLToggle: (enabled: boolean) => void
 }
@@ -31,7 +29,6 @@ export function LightingPanel({
   azimuth, elevation, intensity, activePreset,
   onAzimuthChange, onElevationChange, onIntensityChange, onPresetSelect,
   shadowsEnabled, onShadowsToggle,
-  bloomEnabled, onBloomToggle,
   iblEnabled, onIBLToggle,
 }: LightingPanelProps) {
   return (
@@ -92,19 +89,6 @@ export function LightingPanel({
             className={styles.checkbox}
           />
           <span>그림자</span>
-        </label>
-      </div>
-
-      {/* 블룸 토글 (3b-5) */}
-      <div className={styles.toggleRow}>
-        <label className={styles.toggleLabel}>
-          <input
-            type="checkbox"
-            checked={bloomEnabled}
-            onChange={(e) => onBloomToggle(e.target.checked)}
-            className={styles.checkbox}
-          />
-          <span>블룸</span>
         </label>
       </div>
 

@@ -63,7 +63,6 @@ Phase 4 완료 = v1.0 출시. GMTCK 내 여러 팀에 정식 배포.
 - Electron / Tauri 사용 금지 — 웹 앱으로 확정, 데스크탱 앱 프레임워크 일체 제외
 - react-babylonjs 라이브러리 금지 — 순수 Babylon.js API + useEffect 패턴
 - glTF 확장자 사용 금지 — GLB만 사용
-- 전체 차량 단일 GLB 로딩 금지 — 구역별 분리 필수
 - 서버에서 3D 렌더링 시도 금지 — 렌더링은 항상 클라이언트
 - 파일 경로 하드코딩 금지 — 환경변수 사용
 - `os.path` 사용 금지 — `pathlib.Path` 사용
@@ -88,6 +87,9 @@ Phase 4 완료 = v1.0 출시. GMTCK 내 여러 팀에 정식 배포.
   - `ShadowGenerator`, `DefaultRenderingPipeline`, `CubeTexture`, `Mesh` (수동 생성): GPU 리소스 소유 → `ownedResourcesRef.push` 필수
 - **기능 토글 시 객체 재생성 금지** — ShadowGenerator, DefaultRenderingPipeline 등을 OFF 시 dispose하고 ON 시 재생성하면 셰이더 재컴파일 + Effect 객체 누적 + GPU RTT 누수. `sg.refreshRate=0` + `sg.darkness=1.0`, `pipeline.bloomEnabled=false` 같은 불린 토글만 사용.
 - **슬라이더/onChange/반복 콜백 내 logger 호출 금지** — 초당 60+ 호출 경로는 logger retention 누수 직격. Phase 3b-2 슬라이더, 3b-4 updateSunPosition 경로에 적용.
+- **Bloom 재도입 금지** — Phase 4에서 완전 제거 확정. DefaultRenderingPipeline `bloomEnabled`/`bloomWeight`/`bloomThreshold`/`bloomKernel`/`bloomScale` 관련 코드 일체 금지.
+- **animationGroup 이름 충돌 방지** — UE5 Level Sequence는 파츠당 1개씩 분리. 네이밍: `{PartName}_{index}` (예: `Hood_0`, `Door_LF_1`). 1개 Level Sequence에 여러 파츠 포함 금지.
+- **IBL 환경 ON/OFF 토글 시 CubeTexture 재생성 금지** — `envTextureRef` null 스왑만 허용 (`scene.environmentTexture = null ↔ envTextureRef.current`). 단, 환경 파일 교체(다른 `.env` 로드)는 이전 CubeTexture dispose 후 새로 생성 허용.
 
 ## 코드 작성 규칙
 
@@ -117,16 +119,16 @@ Phase 4 완료 = v1.0 출시. GMTCK 내 여러 팀에 정식 배포.
 
 ## 성능 목표 (항상 지킬 것)
 - 타겟 기기: 일반 노트북 (Intel 내장 그래픽 포함)
-- 초기 로딩 파일 크기: 30MB 이하 (exterior.glb 기준)
+- 초기 로딩 파일 크기: 50MB 이하 (model.glb 기준)
 - 목표 프레임: 노트북 30fps 이상
 - **초기 로딩 시간**:
   - 단일 접속 기준: 5초 이내
   - 동시 4~5명 기준: 5초 이내 (1Gbps 랜 한계 고려)
   - 동시 20명 기준: 최대 15초 (Phase 6 Cloud + CDN 이전 시 해결)
 - 동시 접속: 5~20명
-- 드로우콜 상한: 구역당 500 이하 (exterior 기준), PBR + IBL + 후처리 적용 후에도 유지
-- 머티리얼 수 상한: 구역당 50 이하 — UE5 export 전 머티리얼 병합 필수
-- **총 텍스처 메모리 예산**: 구역당 1GB 이내 (Intel 내장 그래픽 기준)
+- 드로우콜 상한: 차량당 500 이하, PBR + IBL + 후처리 적용 후에도 유지
+- 머티리얼 수 상한: 차량당 50 이하 — UE5 export 전 머티리얼 병합 필수
+- **총 텍스처 메모리 예산**: 차량당 1GB 이내 (Intel 내장 그래픽 기준)
 
 ### 네트워크 대역폭 현실 (중요)
 Windows 데스크탑 1대 서버 + 1Gbps 사내 랜 기준:
@@ -268,11 +270,16 @@ console.log({
 - 모든 거리 기반 계산(스카이박스 size, 카메라 minZ/maxZ, 조명 위치, 카메라 프리셋 거리)은 미터 가정
 - Sketchfab 등 외부 GLB는 단위 다를 수 있음 — Phase 3a 검증용으로만 사용, 실제 GMTCK 차량 검증은 Phase 4 후
 
-## 차량 구조 (GLB 분리 기준)
-- `exterior.glb` — 외장 (초기 로딩 대상)
-- `interior.glb` — 내장 (요청 시 로드)
-- `chassis.glb` — 섀시 (요청 시 로드)
-- `powertrain.glb` — 파워트레인 (요청 시 로드)
+## 차량 구조 (단일 GLB)
+- 차량 1개당 GLB 1개 (`model.glb`)
+- exterior/interior/chassis 구역 분리 없음
+- 파일 크기 목표: Meshopt + KTX2 압축 후 50MB 이하
+- 파츠 애니메이션은 GLB 내 `animationGroup`으로 포함 (UE5 Level Sequence export)
+
+### animationGroup 재생 규칙
+- 정방향 1회 재생: `group.play(false)` (`false` = loop 비활성화)
+- 역재생: `group.speedRatio = -1` → `group.play(false)`
+- 재생 중 방향 전환: `group.speedRatio` 부호만 반전 (pause/재생성 금지)
 
 ## Windows 운영 제약 (필수)
 
@@ -354,9 +361,10 @@ vehicle-web-viewer/
 ## API 설계
 | Method | Path | 설명 | Cache-Control |
 |--------|------|------|---|
-| GET | `/vehicles` | 전체 차량 목록 | no-cache |
-| GET | `/vehicles/{id}` | 차량 메타데이터 | no-cache |
-| GET | `/vehicles/{id}/{zone}` | 구역별 GLB 파일 서빙 | public, max-age=3600 |
+| GET | `/api/vehicles` | 전체 차량 목록 | no-cache |
+| GET | `/api/vehicles/{id}` | 차량 메타데이터 | no-cache |
+| GET | `/api/vehicles/{id}/model` | 차량 GLB 파일 서빙 | public, max-age=3600 |
+| GET | `/api/environments` | IBL 환경 목록 | no-cache |
 
 ### metadata.json 스키마
 ```json
@@ -366,19 +374,19 @@ vehicle-web-viewer/
   "created_at": "ISO8601",
   "updated_at": "ISO8601",
   "ue_version": "5.5.2",
-  "zones": {
-    "exterior": {
-      "file": "exterior.glb",
-      "file_size_bytes": 0,
-      "file_hash": "sha256-hex",
-      "draw_calls": 0,
-      "material_count": 0,
-      "vertex_count": 0,
-      "texture_memory_bytes": 0
-    }
-  }
+  "model": {
+    "file": "model.glb",
+    "file_size_bytes": 0,
+    "file_hash": "sha256-hex",
+    "draw_calls": 0,
+    "material_count": 0,
+    "vertex_count": 0,
+    "texture_memory_bytes": 0
+  },
+  "animations": ["Hood_0", "FuelLid_1", "Door_LF_2"]
 }
 ```
+`animations` 필드는 optional, 백엔드 참고용. 프론트엔드는 `scene.animationGroups`에서 자동 감지.
 
 ## 파이프라인 스크립트 책임 분리
 - `watch.py`: UE5 export 폴더 감시, 파일 안정화 판정, `compress.py` 호출
@@ -402,7 +410,7 @@ vehicle-web-viewer/
   - ⚠️ 메모리 누수 잔존 — Phase 4 진입 전 해결 필수
 - [x] **Phase 3a 완료** (2026-04-12): IBL + PBR + 반사 바닥 + ToneMapping + FXAA ✅
 - [x] **Phase 3b 완료** (2026-04-12): 태양광 컨트롤 + 프리셋 5개 + 실시간 그림자 + Bloom ✅
-- [ ] Phase 3c: 환경 프리셋 + 카메라 프리셋 + 사이드바 Accordion
+- [x] **Phase 3c 완료** (2026-04-14): React Router 3페이지 라우팅 + 로그인/차량선택 페이지 + IBL 토글 ✅
 - [ ] **Phase 4: 인터랙션 + v1.0 출시**
   - [ ] 메모리 누수 본진 해결 (logger retention 1순위)
   - [ ] 기준 기기(Intel Iris Xe) 통합 측정
@@ -474,11 +482,15 @@ vehicle-web-viewer/
 - [x] **벤치마크 기록 append 완료** ✅ Phase 3a, 3b
 
 ### Phase 4 = v1.0 출시 조건
+- [ ] GLB 구조 단순화 (zone → 단일 GLB)
+- [ ] Bloom 완전 제거
+- [ ] 파츠 애니메이션 (animationGroup 자동 감지 + 토글)
+- [ ] IBL 환경 드롭다운
+- [ ] UI 레이아웃 개편
 - [ ] 파츠 클릭 시 이름/정보 표시
 - [ ] 숨기기/보이기 토글 동작
 - [ ] 색상/재질 실시간 변경
 - [ ] 문 열기/닫기 애니메이션 동작
-- [ ] zone 전환 (exterior ↔ interior 등)
 - [ ] 차량 전환 시 메모리 누수 없음 (계측 로그 검증)
 - [ ] engine 유지 확인
 - [ ] `gltf-transform instance` 도입 여부 결정
@@ -644,3 +656,8 @@ vehicle-web-viewer/
 
 ## 규칙 변경 이력
 - 2026-04-10: 저작권 `Philip Choi`로 변경
+- 2026-04-15: GLB 구조 zone 분리(exterior/interior/chassis/powertrain) → 단일 `model.glb`로 전환. metadata.json 스키마에서 `zones` 제거, `model` + `animations` 필드로 재설계.
+- 2026-04-15: Bloom 재도입 금지 규칙 추가 (Phase 3b-5에서 도입했으나 차량 뷰어 용도에 부적합 판단, Phase 4에서 완전 제거).
+- 2026-04-15: animationGroup 네이밍/재생 규칙 추가. `group.play(false)`로 1회 재생, 역재생은 `speedRatio = -1` 후 `play(false)`. 방향 전환 시 pause/재생성 금지.
+- 2026-04-15: IBL ON/OFF 토글과 환경 교체 규칙 분리. 토글은 `environmentTexture = null ↔ 원본 CubeTexture` 스왑, 환경 교체는 기존 CubeTexture dispose 후 새로 생성.
+- 2026-04-15: 성능 목표 용어 통일. '구역당' → '차량당' (단일 GLB 구조 전환에 맞춰). 초기 로딩 파일 크기 30MB → 50MB (model.glb 기준).

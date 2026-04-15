@@ -54,7 +54,6 @@ export function useLightingControl(sceneManager: SceneManager) {
   const [state, setState] = useState<LightingState>(DEFAULT_LIGHTING)
   const [activePreset, setActivePreset] = useState<PresetId | null>(null)
   const [shadowsEnabled, setShadowsEnabledState] = useState<boolean>(true)
-  const [bloomEnabled, setBloomEnabledState] = useState<boolean>(true)
   const [iblEnabled, setIBLEnabledState] = useState<boolean>(true)
 
   const setAzimuth = useCallback((azimuth: number) => {
@@ -109,11 +108,6 @@ export function useLightingControl(sceneManager: SceneManager) {
     setShadowsEnabledState(enabled)
   }, [sceneManager])
 
-  const setBloomEnabled = useCallback((enabled: boolean) => {
-    sceneManager.setBloomEnabled(enabled)
-    setBloomEnabledState(enabled)
-  }, [sceneManager])
-
   const setIBLEnabled = useCallback((enabled: boolean) => {
     sceneManager.setIBLEnabled(enabled)
     setIBLEnabledState(enabled)
@@ -127,13 +121,12 @@ export function useLightingControl(sceneManager: SceneManager) {
     sun.intensity = state.intensity
     sceneManager.updateSunPosition()
     sceneManager.setShadowsEnabled(shadowsEnabled)
-    sceneManager.setBloomEnabled(bloomEnabled)
     sceneManager.setIBLEnabled(iblEnabled)
-  }, [sceneManager, state, shadowsEnabled, bloomEnabled, iblEnabled])
+  }, [sceneManager, state, shadowsEnabled, iblEnabled])
 
   return {
-    state, activePreset, shadowsEnabled, bloomEnabled, iblEnabled,
+    state, activePreset, shadowsEnabled, iblEnabled,
     setAzimuth, setElevation, setIntensity,
-    setShadowsEnabled, setBloomEnabled, setIBLEnabled, applyPreset, resync,
+    setShadowsEnabled, setIBLEnabled, applyPreset, resync,
   }
 }
