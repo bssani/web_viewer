@@ -92,6 +92,12 @@ Phase 4 완료 = v1.0 출시. GMTCK 내 여러 팀에 정식 배포.
 - **IBL 환경 ON/OFF 토글 시 CubeTexture 재생성 금지** — `envTextureRef` null 스왑만 허용 (`scene.environmentTexture = null ↔ envTextureRef.current`). 단, 환경 파일 교체(다른 `.env` 로드)는 이전 CubeTexture dispose 후 새로 생성 허용.
 - **패널 토글 시 CSS transition 사용 금지** — 캔버스 부모 flex 폭이 transition으로 매 프레임 변하면 ResizeObserver가 rAF 디바운싱에도 `engine.resize()`를 60Hz로 호출. WebGPU 렌더 끊김 + 누수 가속. 즉시 snap 변경만 허용 (ResizeObserver 1회 발화).
 - **localStorage 불리언 저장 시 문자열 비교 필수** — `if (localStorage.getItem(key))` 형태 금지. `"false"` 문자열도 truthy로 판정되는 버그 발생. `utils/preferences.ts`의 `saveBooleanPref` / `loadBooleanPref` 헬퍼 사용 (`v === 'true'` 명시 비교).
+- **WebGPU engine 세션 내 dispose 금지 (engine 영속화 원칙)** — `engine.dispose()`는 `beforeunload`에서만. Viewer 라우트 왕복마다 engine 재생성하면 WebGPU bind group cache + GPU resource가 해제되지 않고 누적 (Babylon 9.2.0 WebGPU 공식 포럼에도 다년간 리포트된 구조 이슈). Phase 4-7 baseline 10회 왕복 +980MB → engine 영속화 후 +149MB (85% 개선). canvas + engine은 `EngineContext`(App 레벨)에서 소유, Viewer는 scene만 dispose.
+- **canvas fullscreen fixed + visibility 토글 패턴 (engine 영속화 전제)** — canvas는 `position:fixed; top:0; left:0; width:100vw; height:100vh`로 항상 DOM에 존재. Viewer 경로에서만 `visibility:visible + pointerEvents:auto + zIndex:1`, 다른 경로에선 `visibility:hidden + pointerEvents:none + zIndex:-1`. `display:none`은 WebGPU context lost 위험 → 사용 금지.
+- **Viewer 라우트 canvas 위 UI 레이어는 pointer-events 명시 필수** — canvas가 fullscreen fixed일 때, Viewer root div는 `pointer-events-none` (자체가 hit-test에서 빠져야 canvas가 orbit/zoom 수신). 사이드 패널(`<aside>`)과 overlay(LoadingBar/ErrorMessage/DevPanel)는 각자 `pointer-events-auto` 명시. CSS `pointer-events`는 상속 안 되지만, canvas fullscreen 하부에서 기본값 auto에 의존하면 브라우저별 hit-test 우선순위 차이로 UI 클릭 불능 회귀 발생 — 명시 필수.
+- **useScene Viewer 언마운트 시 scene dispose useEffect 필수 (engine 영속화 전제)** — engine이 영속화되면 `engine.dispose()`가 scene을 자동 해제해주지 않음. `useScene` 훅에 `useEffect(() => () => disposeCurrentScene(), [disposeCurrentScene])` 추가 필수. 누락 시 Viewer 언마운트마다 scene + GPU 리소스 고아 발생. Phase 4-7 Step 3에서 JS Heap 85% 개선의 핵심.
+- **React 18 Strict Mode useRef 중복 초기화 방지 패턴** — EngineProvider처럼 한 번만 실행되어야 할 초기화는 `isInitializedRef = useRef(false)`로 가드하되, **cleanup에서 false로 되돌리지 말 것**. Strict Mode는 mount → cleanup → mount 2회 실행하므로, cleanup에서 리셋하면 중복 초기화 방지 무력화. 한 번 true가 되면 컴포넌트 unmount까지 true 유지.
+- **useVehicleLoader에서 unmount cleanup으로 AbortController abort 호출 금지 (engine 영속화 전제)** — engine 영속화 후 Viewer는 Strict Mode false cleanup을 2회 거치는데, cleanup에서 abort 호출하면 정상 로드가 중단됨. 실제 페이지 이탈은 브라우저가 요청을 자연 취소 + React는 unmount 후 setState 무시. 새 `loadVehicle` 호출은 자체적으로 이전 AbortController를 abort하므로 중복 fetch 방지는 유지됨.
 
 ## 코드 작성 규칙
 
@@ -414,11 +420,11 @@ vehicle-web-viewer/
 - [x] **Phase 3b 완료** (2026-04-12): 태양광 컨트롤 + 프리셋 5개 + 실시간 그림자 + Bloom ✅
 - [x] **Phase 3c 완료** (2026-04-14): React Router 3페이지 라우팅 + 로그인/차량선택 페이지 + IBL 토글 ✅
 - [x] **Phase 4 완료** (2026-04-15): 단일 GLB 구조 + 파츠 애니메이션 + IBL 드롭다운 + 좌우 2패널 UI ✅ (메모리 누수는 4-7로 이연)
-- [ ] **Phase 4-7: 메모리 누수 본진 (engine 영속화 재시도)**
-  - [ ] SPA 라우팅 heap 누수 해결 (왕복 10회 후 1.1GB)
-  - [ ] logger retention 처리 (concatenated string +147k)
-  - [ ] WebGPU 캐시 누적 처리 (BindGroupCacheNode +44k, GPUBindGroup +11k)
-  - [ ] 기준 기기(Intel Iris Xe) 통합 측정
+- [x] **Phase 4-7 완료** (2026-04-17): engine 영속화 + scene/resource cleanup으로 WebGPU 누수 해결 ✅
+  - [x] SPA 라우팅 heap 누수 해결 (왕복 10회 +980MB → +149MB, 85% 개선)
+  - [x] WebGPU 캐시 누적 처리 (engine 영속화 + unmount scene dispose로 해결)
+  - [x] GPU 리소스 누적 처리 (GPUBindGroup, GPUTextureView, GPUBuffer — disposeCurrentScene에 포함)
+  - [ ] 기준 기기(Intel Iris Xe) 통합 측정 — v1.0 출시 전 이연 (기존 방침 유지)
 - [ ] Phase 5: WebXR VR 연동 (선택적)
 - [ ] Phase 6: 인증(SSO) + Cloud 이전 검토
 
@@ -685,6 +691,42 @@ vehicle-web-viewer/
 
 **기준 기기 (Intel Iris Xe):** v1.0 출시 전 통합 테스트로 이연 (기존 방침 유지)
 
+### Phase 4-7 완료 (2026-04-17) — 메모리 누수 본진 해결
+
+**개발 환경:** Ryzen 9 7950X / RTX 3060 / Win11 / Chrome WebGPU
+
+**측정 결과 (porsche_911 환경 None 10회 왕복):**
+| 지표 | Baseline (Phase 4 종료) | Step 2 (engine 영속화) | Step 3 (scene cleanup) | 개선 |
+|---|---|---|---|---|
+| JS Heap Delta | +980 MB | +667 MB | **+149 MB** | **85%** |
+| WebGPUBindGroupCacheNode | +54,828 | +19,780 | +15,232 | 72% |
+| GPUBindGroup | +15,148 | +5,411 | +4,281 | 72% |
+| GPUTextureView | +4,120 | +1,548 | +1,232 | 70% |
+| GPUBuffer | +4,356 | +1,631 | +1,290 | 70% |
+| 캐시 텍스처 누적 | 35 → 107 | 35 → 107 | **35 → 36** | - |
+
+**환경 드롭다운 토글 (10회):** +12MB (changeEnvironment dispose 정상 동작, 안전)
+
+**Step 구성:**
+- **Step 1** (5520235): EngineContext 인프라 준비 — canvas placeholder + Context 골격 (engine=null)
+- **Step 2** (230e809): Engine 영속화 본진 — canvas/engine을 App 레벨 `EngineProvider`로 이관, Viewer는 scene만 소유, `useEngine.ts` 싱글톤/resetEngine 제거
+- **Step 3** (99f2a83): Scene/Resource cleanup — `disposeCurrentScene` 공통 함수 추출 + Viewer 언마운트 시 scene dispose useEffect + pointer-events 회귀 수정
+
+**핵심 학습 (위 '절대 하면 안 되는 것' 섹션에 반영됨):**
+1. **WebGPU engine dispose는 bind group cache를 완전히 해제 못 함** — engine 영속화(canvas+engine App 레벨 소유)가 유일한 근본 해결책. 세션 내 engine dispose 금지, beforeunload에서만.
+2. **engine 영속화의 역효과 — scene이 고아가 됨** — 기존엔 engine.dispose가 scene까지 암묵 해제. 영속화 후 `useScene` unmount 시 명시적 `disposeCurrentScene` useEffect 필수.
+3. **canvas fullscreen fixed 패턴** — display:none은 WebGPU context lost 위험. visibility + zIndex + pointerEvents + tabIndex 조합으로 Viewer 경로에서만 활성화.
+4. **pointer-events 명시 필수** — canvas fullscreen 하부에 UI 레이어 올릴 때, Viewer root `pointer-events-none` + aside/overlay `pointer-events-auto` 명시. 기본값 auto에 의존하면 회귀.
+5. **React 18 Strict Mode useRef 중복 초기화 가드 cleanup 금지** — cleanup에서 false로 되돌리면 가드 무력화. 한 번 true면 unmount까지 유지.
+6. **useVehicleLoader unmount abort 호출 금지 (engine 영속화 전제)** — Strict Mode false cleanup이 정상 로드를 중단시키는 회귀 방지. 브라우저 자연 취소 + setState 무시로 충분.
+
+**커밋 히스토리:**
+- 5520235 Phase 4-7 Step 1: EngineContext 인프라 준비
+- 230e809 Phase 4-7 Step 2: Engine 영속화 본진
+- 99f2a83 Phase 4-7 Step 3: Scene/Resource cleanup + pointer-events 회귀 수정
+
+**기준 기기 (Intel Iris Xe):** v1.0 출시 전 통합 테스트로 이연 (기존 방침 유지)
+
 ## 규칙 변경 이력
 - 2026-04-10: 저작권 `Philip Choi`로 변경
 - 2026-04-15: GLB 구조 zone 분리(exterior/interior/chassis/powertrain) → 단일 `model.glb`로 전환. metadata.json 스키마에서 `zones` 제거, `model` + `animations` 필드로 재설계.
@@ -692,3 +734,4 @@ vehicle-web-viewer/
 - 2026-04-15: animationGroup 네이밍/재생 규칙 추가. `group.play(false)`로 1회 재생, 역재생은 `speedRatio = -1` 후 `play(false)`. 방향 전환 시 pause/재생성 금지.
 - 2026-04-15: IBL ON/OFF 토글과 환경 교체 규칙 분리. 토글은 `environmentTexture = null ↔ 원본 CubeTexture` 스왑, 환경 교체는 기존 CubeTexture dispose 후 새로 생성.
 - 2026-04-15: 성능 목표 용어 통일. '구역당' → '차량당' (단일 GLB 구조 전환에 맞춰). 초기 로딩 파일 크기 30MB → 50MB (model.glb 기준).
+- 2026-04-17: Phase 4-7 완료 — engine 영속화로 WebGPU 누수 본진 해결 (10회 왕복 +980MB → +149MB, 85% 개선). 6개 규칙 추가: (1) WebGPU engine 세션 내 dispose 금지, (2) canvas fullscreen fixed + visibility 토글 패턴, (3) Viewer 라우트 canvas 위 UI 레이어 pointer-events 명시 필수, (4) useScene Viewer 언마운트 시 scene dispose useEffect 필수, (5) React 18 Strict Mode useRef 중복 초기화 가드 cleanup 금지, (6) useVehicleLoader unmount AbortController abort 호출 금지.
