@@ -33,8 +33,13 @@ export function usePartAnimations(scene: Scene | null, vehicleId: string | null)
     }
 
     const detected: PartAnimationState[] = scene.animationGroups.map((g) => {
+      // 초기 포즈를 from 프레임(닫힌 상태)으로 강제 적용.
+      // stop() + goToFrame만 호출하면 animatables 미생성 상태라 pose 업데이트 안 됨 — GLB 기본 pose가 유지되어
+      // 일부 파츠(FuelLid 등)가 열린 채로 표시되는 회귀 발생.
+      // play(false) → animatables 생성 → goToFrame(from) 동기 pose 적용 → stop()으로 정리.
+      g.play(false)
+      g.goToFrame(g.from)
       g.stop()
-      g.goToFrame(0)
       return {
         name: g.name,
         displayName: parseDisplayName(g.name),
