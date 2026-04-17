@@ -6,7 +6,7 @@
  * 빠른 차량 전환 시 마지막 선택만 반영.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { ImportMeshAsync } from '@babylonjs/core/Loading/sceneLoader'
 import { Vector3 } from '@babylonjs/core/Maths/math.vector'
 import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh'
@@ -76,13 +76,9 @@ export function useVehicleLoader(
 
   const lastRequestRef = useRef<{ vehicleId: string } | null>(null)
 
-  // 언마운트 시 진행 중인 요청 취소
-  useEffect(() => {
-    return () => {
-      abortRef.current?.abort()
-      abortRef.current = null
-    }
-  }, [])
+  // Strict Mode false cleanup 시 정상 로드가 abort되는 회귀 방지 (engine 영속화 이후 Phase 4-7).
+  // 실제 페이지 이탈 시 브라우저가 요청을 자연 취소하고, React는 unmount 후 setState를 무시.
+  // 새 loadVehicle 호출은 자체적으로 이전 AbortController를 abort하므로 중복 fetch 방지는 유지됨.
 
   const loadVehicle = useCallback(
     async (vehicleId: string) => {

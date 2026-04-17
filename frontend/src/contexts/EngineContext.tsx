@@ -3,24 +3,31 @@
 /**
  * EngineContext — App 레벨 canvas/engine 영속화 컨테이너.
  *
- * Step 1 (현재): canvas DOM placeholder만 보유. engine은 null 고정.
- *   - Viewer는 여전히 자체 useEngine(canvas)로 engine 생성 (기능/메모리 baseline 동일).
- *   - Step 2에서 이 canvas를 Viewer가 사용하도록 전환하면서 engine 초기화 추가 예정.
+ * canvas는 전체화면 fixed로 항상 DOM에 존재.
+ * Viewer 경로(/vehicles/:id/viewer) 진입 시 visibility:visible + pointer-events:auto.
+ * 다른 경로에선 visibility:hidden + pointer-events:none + 낮은 z-index로 숨김.
  *
- * canvas 이중 초기화 방지를 위해 현재는 initializeEngine() 호출하지 않음.
- * beforeunload dispose 로직도 Step 2에서 engine 초기화와 함께 추가.
+ * engine은 첫 Viewer 진입 시 lazy 초기화.
+ * 한 번 만들어진 engine은 세션 내 영속 (beforeunload 시에만 dispose).
+ * Viewer는 scene만 dispose하고 engine은 건드리지 않음.
  */
 
 import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
+  useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
+import { useLocation } from 'react-router-dom'
 import type { Engine } from '@babylonjs/core/Engines/engine'
 import type { WebGPUEngine } from '@babylonjs/core/Engines/webgpuEngine'
 import type { RendererType } from '../types/vehicle'
+import { initializeEngine } from '../hooks/useEngine'
+import { logger } from '../utils/logger'
 
 interface EngineContextValue {
   engine: Engine | WebGPUEngine | null
@@ -30,6 +37,9 @@ interface EngineContextValue {
 }
 
 const EngineContext = createContext<EngineContextValue | null>(null)
+
+// Viewer 경로 매칭: /vehicles/{id}/viewer
+const VIEWER_PATH_PATTERN = /^\/vehicles\/[^/]+\/viewer$/
 
 export function useEngineContext(): EngineContextValue {
   const ctx = useContext(EngineContext)
@@ -41,18 +51,56 @@ export function useEngineContext(): EngineContextValue {
 
 export function EngineProvider({ children }: { children: ReactNode }) {
   const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null)
+  const [engine, setEngine] = useState<Engine | WebGPUEngine | null>(null)
+  const [rendererType, setRendererType] = useState<RendererType | null>(null)
+  const [error, setError] = useState<Error | null>(null)
 
-  // 캔버스 DOM 마운트 시점에 state로 끌어올려 children이 참조할 수 있게 함.
+  // Strict Mode 대응: cleanup에서 false로 되돌리지 않음 (한 번 true면 unmount까지 유지)
+  const isInitializedRef = useRef(false)
+
+  const location = useLocation()
+  const isViewerActive = VIEWER_PATH_PATTERN.test(location.pathname)
+
+  // canvas DOM 마운트 시 state로 끌어올림 (callback ref)
   const canvasRefCallback = useCallback((node: HTMLCanvasElement | null) => {
     setCanvas(node)
   }, [])
 
-  const value: EngineContextValue = {
-    engine: null,
-    rendererType: null,
-    canvas,
-    error: null,
-  }
+  // Viewer 경로 첫 진입 시 엔진 lazy 초기화
+  useEffect(() => {
+    if (!canvas) return
+    if (!isViewerActive) return
+    if (isInitializedRef.current) return
+
+    isInitializedRef.current = true
+
+    initializeEngine(canvas)
+      .then(({ engine: e, rendererType: r }) => {
+        setEngine(e)
+        setRendererType(r)
+      })
+      .catch((err: Error) => {
+        logger.error('엔진 초기화 실패', err)
+        setError(err)
+      })
+  }, [canvas, isViewerActive])
+
+  // 페이지 언로드 시에만 engine dispose
+  useEffect(() => {
+    const handleUnload = () => {
+      if (engine) {
+        engine.stopRenderLoop()
+        engine.dispose()
+      }
+    }
+    window.addEventListener('beforeunload', handleUnload)
+    return () => window.removeEventListener('beforeunload', handleUnload)
+  }, [engine])
+
+  const value = useMemo<EngineContextValue>(
+    () => ({ engine, rendererType, canvas, error }),
+    [engine, rendererType, canvas, error],
+  )
 
   return (
     <EngineContext.Provider value={value}>
@@ -60,12 +108,16 @@ export function EngineProvider({ children }: { children: ReactNode }) {
         ref={canvasRefCallback}
         style={{
           position: 'fixed',
-          left: -9999,
           top: 0,
-          width: 1,
-          height: 1,
-          pointerEvents: 'none',
+          left: 0,
+          width: '100vw',
+          height: '100vh',
+          visibility: isViewerActive ? 'visible' : 'hidden',
+          pointerEvents: isViewerActive ? 'auto' : 'none',
+          zIndex: isViewerActive ? 1 : -1,
+          outline: 'none',
         }}
+        tabIndex={isViewerActive ? 0 : -1}
       />
       {children}
     </EngineContext.Provider>

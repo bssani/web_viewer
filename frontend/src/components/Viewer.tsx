@@ -1,14 +1,14 @@
 // Copyright (c) 2025 Philip Choi
 
 /**
- * Babylon.js 캔버스 래퍼.
- * ResizeObserver + requestAnimationFrame 디바운싱으로 리사이즈 처리.
- * 로딩/에러 오버레이는 캔버스 위에 표시.
+ * Babylon.js 뷰어 래퍼.
+ * canvas/engine은 EngineContext 소유 (앱 레벨 영속).
+ * Viewer는 scene 생성/dispose 및 차량 로드/조명/애니메이션 UI만 담당.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useEngine, resetEngine } from '../hooks/useEngine'
+import { useEngineContext } from '../contexts/EngineContext'
 import { useScene } from '../hooks/useScene'
 import { useVehicleLoader } from '../hooks/useVehicleLoader'
 import { useLightingControl } from '../hooks/useLightingControl'
@@ -27,18 +27,19 @@ interface ViewerProps {
 
 export function Viewer({ selectedVehicleId, isDevMode }: ViewerProps) {
   const navigate = useNavigate()
-  const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null)
-  const canvasRef = useCallback((el: HTMLCanvasElement | null) => {
-    setCanvas(el)
-  }, [])
 
-  const { engine, rendererType, error: engineError } = useEngine(canvas)
+  // canvas + engine은 EngineContext 소유 (앱 전체 수명)
+  const { engine, rendererType, error: engineError } = useEngineContext()
+
+  // 캔버스 활성 영역 placeholder (ResizeObserver 대상)
+  const canvasAreaRef = useRef<HTMLDivElement | null>(null)
+
   const sceneManager = useScene(engine ?? null)
   const loader = useVehicleLoader(engine ?? null, sceneManager)
   const lighting = useLightingControl(sceneManager, loader.currentVehicleId)
   const anim = usePartAnimations(sceneManager.sceneRef.current, loader.currentVehicleId)
 
-  // 차량 선택 변경 시 로드 (engine 준비 후에만 prevRef 갱신)
+  // 차량 선택 변경 시 로드 (engine 준비 후)
   const prevVehicleRef = useRef<string | null>(null)
   useEffect(() => {
     if (!engine) return
@@ -63,19 +64,20 @@ export function Viewer({ selectedVehicleId, isDevMode }: ViewerProps) {
     return () => { (window as any).__SCENE__ = null }
   }, [isDevMode, sceneManager.sceneRef.current])
 
-  // unmount 시 engine + scene 정리 (페이지 이탈 대비)
-  // 라우팅으로 canvas DOM이 제거되므로 engine 싱글톤도 리셋 필요
+  // Viewer 언마운트: 렌더 루프만 중지, engine은 EngineContext 소유라 dispose 금지
+  // scene dispose는 useScene 훅 내부에서 처리
   useEffect(() => {
     return () => {
-      logger.info('[scene disposed]')
-      resetEngine()
+      logger.info('[Viewer unmount — scene dispose만 수행]')
+      engine?.stopRenderLoop()
     }
-  }, [])
+  }, [engine])
 
-  // ResizeObserver + rAF 디바운싱
+  // ResizeObserver — 캔버스 활성 영역(flex-1 div) 감시
+  // canvas 자체는 fullscreen이라 브라우저 resize는 자동. 패널 토글 시 활성 영역 변화만 처리.
   useEffect(() => {
-    const parent = canvas?.parentElement
-    if (!parent || !engine) return
+    const el = canvasAreaRef.current
+    if (!el || !engine) return
 
     let rafId: number | null = null
     const observer = new ResizeObserver(() => {
@@ -86,15 +88,16 @@ export function Viewer({ selectedVehicleId, isDevMode }: ViewerProps) {
       })
     })
 
-    observer.observe(parent)
+    observer.observe(el)
     return () => {
       observer.disconnect()
       if (rafId !== null) cancelAnimationFrame(rafId)
     }
-  }, [engine, canvas])
+  }, [engine])
 
   return (
-    <div className="flex h-full w-full bg-slate-900">
+    // canvas(z:1 fixed) 위에 UI를 올리기 위해 stacking context 생성 + 투명 배경 (canvas 가림 방지).
+    <div className="relative z-20 flex h-full w-full">
       {/* 좌측 고정 패널 */}
       <LeftPanel
         parts={anim.parts}
@@ -102,46 +105,51 @@ export function Viewer({ selectedVehicleId, isDevMode }: ViewerProps) {
         onBackToSelect={() => navigate('/vehicles')}
       />
 
-      {/* 캔버스 영역 — min-w-0 필수 (flex item 기본 min-width: auto가 캔버스를 밀어냄) */}
-      <div className="relative flex-1 min-w-0 overflow-hidden">
-        <canvas
-          ref={canvasRef}
-          className="w-full h-full block outline-none"
-          touch-action="none"
-        />
-
+      {/* 캔버스 활성 영역 — canvas는 EngineContext가 fullscreen으로 렌더. */}
+      {/* placeholder는 pointer-events-none으로 canvas가 orbit/zoom 이벤트 수신하도록 통과. */}
+      <div ref={canvasAreaRef} className="relative flex-1 min-w-0 overflow-hidden pointer-events-none">
         {!selectedVehicleId && !loader.isLoading && (
           <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
             <p className="text-slate-500 text-sm">차량을 선택하세요</p>
           </div>
         )}
 
-        {loader.isLoading && <LoadingBar progress={loader.progress} />}
+        {loader.isLoading && (
+          <div className="pointer-events-auto">
+            <LoadingBar progress={loader.progress} />
+          </div>
+        )}
 
         {loader.error && (
-          <ErrorMessage
-            error={loader.error}
-            onRetry={loader.retry}
-            onDismiss={loader.clearError}
-          />
+          <div className="pointer-events-auto">
+            <ErrorMessage
+              error={loader.error}
+              onRetry={loader.retry}
+              onDismiss={loader.clearError}
+            />
+          </div>
         )}
 
         {engineError && (
-          <ErrorMessage
-            error={engineError}
-            onRetry={() => window.location.reload()}
-            onDismiss={() => {}}
-          />
+          <div className="pointer-events-auto">
+            <ErrorMessage
+              error={engineError}
+              onRetry={() => window.location.reload()}
+              onDismiss={() => {}}
+            />
+          </div>
         )}
 
         {isDevMode && (
-          <DevPanel
-            engine={engine ?? null}
-            scene={sceneManager.sceneRef.current}
-            rendererType={rendererType ?? null}
-            vehicleId={loader.currentVehicleId}
-            metadata={loader.metadata}
-          />
+          <div className="pointer-events-auto">
+            <DevPanel
+              engine={engine ?? null}
+              scene={sceneManager.sceneRef.current}
+              rendererType={rendererType ?? null}
+              vehicleId={loader.currentVehicleId}
+              metadata={loader.metadata}
+            />
+          </div>
         )}
       </div>
 
