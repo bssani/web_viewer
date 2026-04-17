@@ -3,10 +3,10 @@
 /**
  * Babylon.js 씬 관리 훅.
  * 차량 전환 시 scene.dispose()만 호출, engine.dispose() 금지.
- * dispose 전후 메모리 계측 로그 출력.
+ * Viewer 언마운트 시 disposeCurrentScene으로 고아 scene 차단 (engine 영속화 대응).
  */
 
-import { useCallback, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { Scene } from '@babylonjs/core/scene'
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight'
 import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera'
@@ -65,54 +65,49 @@ export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
   const pipelineRef = useRef<DefaultRenderingPipeline | null>(null)
   const envTextureRef = useRef<CubeTexture | null>(null)
 
-  const createScene = useCallback(() => {
-    // 기존 씬 dispose (메모리 계측)
-    if (sceneRef.current) {
-      const before = {
-        meshes: sceneRef.current.meshes.length,
-        materials: sceneRef.current.materials.length,
-        textures: sceneRef.current.textures.length,
-        cachedTextures: engine?.getLoadedTexturesCache().length ?? 0,
-      }
+  // 씬 + 수동 추적 리소스 공통 dispose. createScene(새 씬 직전) + unmount cleanup 양쪽에서 호출.
+  // sceneRef.current가 null이면 no-op이므로 Strict Mode false cleanup에도 안전.
+  const disposeCurrentScene = useCallback(() => {
+    if (!sceneRef.current) return
 
-      // 렌더 루프 중지 (dispose 중 렌더 방지)
-      engine?.stopRenderLoop()
+    // 렌더 루프 중지 (dispose 중 렌더 방지)
+    engine?.stopRenderLoop()
 
-      // 수동 추적 리소스 명시적 해제 (envTexture 등)
-      for (const res of ownedResourcesRef.current) {
-        res.dispose()
-      }
-      ownedResourcesRef.current = []
-
-      // 스카이박스 dispose (머티리얼+텍스처 포함)
-      skyboxRef.current?.dispose(false, true)
-      skyboxRef.current = null
-
-      // env 텍스처 참조 끊기 (dispose 후 null — 재평가 트리거 방지)
-      sceneRef.current.environmentTexture = null
-
-      // 씬 완전 해제
-      sceneRef.current.dispose()
-      sceneRef.current = null
-      cameraRef.current = null
-      sunRef.current = null
-      shadowGeneratorRef.current = null
-      vehicleBoundsRef.current = null
-      pipelineRef.current = null
-      envTextureRef.current = null
-
-      // 엔진 텍스처 캐시 강제 정리 (scene.dispose가 남기는 잔여 텍스처 제거)
-      const cache = engine?.getLoadedTexturesCache()
-      if (cache) {
-        while (cache.length > 0) {
-          cache.pop()?.dispose()
-        }
-      }
-
-      logger.info('[dispose 검증]', before, '→', {
-        cachedTextures: engine?.getLoadedTexturesCache().length ?? 0,
-      })
+    // 수동 추적 리소스 명시적 해제 (envTexture 등)
+    for (const res of ownedResourcesRef.current) {
+      res.dispose()
     }
+    ownedResourcesRef.current = []
+
+    // 스카이박스 dispose (머티리얼+텍스처 포함)
+    skyboxRef.current?.dispose(false, true)
+    skyboxRef.current = null
+
+    // env 텍스처 참조 끊기 (dispose 후 null — 재평가 트리거 방지)
+    sceneRef.current.environmentTexture = null
+
+    // 씬 완전 해제
+    sceneRef.current.dispose()
+    sceneRef.current = null
+    cameraRef.current = null
+    sunRef.current = null
+    shadowGeneratorRef.current = null
+    vehicleBoundsRef.current = null
+    pipelineRef.current = null
+    envTextureRef.current = null
+
+    // 엔진 텍스처 캐시 강제 정리 (scene.dispose가 남기는 잔여 텍스처 제거)
+    const cache = engine?.getLoadedTexturesCache()
+    if (cache) {
+      while (cache.length > 0) {
+        cache.pop()?.dispose()
+      }
+    }
+  }, [engine])
+
+  const createScene = useCallback(() => {
+    // 기존 씬 dispose (있으면)
+    disposeCurrentScene()
 
     // 새 씬 생성
     const scene = new Scene(engine!)
@@ -181,7 +176,7 @@ export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
     logger.debug('[조명] DirectionalLight intensity=2.0, ambient=0.4')
 
     return scene
-  }, [engine])
+  }, [engine, disposeCurrentScene])
 
   /** sun.position을 차량 bounding box 기준 유동 배치 */
   const updateSunPosition = useCallback(() => {
@@ -346,6 +341,14 @@ export function useScene(engine: Engine | WebGPUEngine | null): SceneManager {
 
     logger.debug(`[바닥] y=${ground.position.y.toFixed(3)}`)
   }, [])
+
+  // Viewer 언마운트 시 scene + 수동 리소스 dispose (engine 영속화로 발생하는 고아 scene 차단).
+  // sceneRef null 검사 덕에 Strict Mode false cleanup에서도 no-op.
+  useEffect(() => {
+    return () => {
+      disposeCurrentScene()
+    }
+  }, [disposeCurrentScene])
 
   return {
     sceneRef, cameraRef, sunRef, shadowGeneratorRef,

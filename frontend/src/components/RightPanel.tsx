@@ -57,7 +57,7 @@ export function RightPanel(props: RightPanelProps) {
         type="button"
         onClick={() => toggle(true)}
         aria-label="우측 패널 펼치기"
-        className="fixed top-3 right-3 z-10 w-8 h-8 flex items-center justify-center bg-slate-800/90 hover:bg-slate-700 text-slate-300 hover:text-white rounded cursor-pointer"
+        className="pointer-events-auto fixed top-3 right-3 z-10 w-8 h-8 flex items-center justify-center bg-slate-800/90 hover:bg-slate-700 text-slate-300 hover:text-white rounded cursor-pointer"
       >
         <ArrowIcon direction="left" />
       </button>
@@ -65,7 +65,7 @@ export function RightPanel(props: RightPanelProps) {
   }
 
   return (
-    <aside className="w-60 shrink-0 h-full bg-slate-900 border-l border-slate-700 flex flex-col text-white">
+    <aside className="pointer-events-auto w-60 shrink-0 h-full bg-slate-900 border-l border-slate-700 flex flex-col text-white">
       <div className="flex items-center justify-between px-3 py-2 border-b border-slate-700 shrink-0">
         <span className="text-xs font-bold text-slate-300">설정</span>
         <button

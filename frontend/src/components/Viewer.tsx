@@ -18,7 +18,6 @@ import { ErrorMessage } from './ErrorMessage'
 import { DevPanel } from './DevPanel'
 import { LeftPanel } from './LeftPanel'
 import { RightPanel } from './RightPanel'
-import { logger } from '../utils/logger'
 
 interface ViewerProps {
   selectedVehicleId: string | null
@@ -68,7 +67,6 @@ export function Viewer({ selectedVehicleId, isDevMode }: ViewerProps) {
   // scene dispose는 useScene 훅 내부에서 처리
   useEffect(() => {
     return () => {
-      logger.info('[Viewer unmount — scene dispose만 수행]')
       engine?.stopRenderLoop()
     }
   }, [engine])
@@ -97,7 +95,8 @@ export function Viewer({ selectedVehicleId, isDevMode }: ViewerProps) {
 
   return (
     // canvas(z:1 fixed) 위에 UI를 올리기 위해 stacking context 생성 + 투명 배경 (canvas 가림 방지).
-    <div className="relative z-20 flex h-full w-full">
+    // pointer-events-none으로 root 자체는 hit-test에서 빠지고, 자식 aside/overlay가 각자 auto로 수신.
+    <div className="relative z-20 flex h-full w-full pointer-events-none">
       {/* 좌측 고정 패널 */}
       <LeftPanel
         parts={anim.parts}

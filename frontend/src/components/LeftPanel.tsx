@@ -18,7 +18,7 @@ interface LeftPanelProps {
 
 export function LeftPanel({ parts, onTogglePart, onBackToSelect }: LeftPanelProps) {
   return (
-    <aside className="w-60 shrink-0 h-full bg-slate-900 border-r border-slate-700 flex flex-col text-white">
+    <aside className="pointer-events-auto w-60 shrink-0 h-full bg-slate-900 border-r border-slate-700 flex flex-col text-white">
       {/* 상단 — 파츠 섹션 */}
       <div className="shrink-0">
         <AnimationPanel parts={parts} onToggle={onTogglePart} />
