@@ -9,14 +9,17 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import LoginPage from './pages/LoginPage'
 import VehicleSelectPage from './pages/VehicleSelectPage'
 import ViewerPage from './pages/ViewerPage'
+import { EngineProvider } from './contexts/EngineContext'
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/" element={<LoginPage />} />
-      <Route path="/vehicles" element={<VehicleSelectPage />} />
-      <Route path="/vehicles/:id/viewer" element={<ViewerPage />} />
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <EngineProvider>
+      <Routes>
+        <Route path="/" element={<LoginPage />} />
+        <Route path="/vehicles" element={<VehicleSelectPage />} />
+        <Route path="/vehicles/:id/viewer" element={<ViewerPage />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </EngineProvider>
   )
 }
